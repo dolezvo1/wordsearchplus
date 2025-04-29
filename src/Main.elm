@@ -5,6 +5,9 @@ import Browser
 import Html exposing (Html)
 import Html.Attributes
 import Html.Events
+import Svg
+import Svg.Attributes
+import Svg.Events
 
 -- Model
 
@@ -46,6 +49,7 @@ type Msg
     = MouseDown Position
     | MouseUp
     | MouseOver Position
+    | MouseOut
 
 update : Msg -> Model -> Model
 update msg model =
@@ -59,6 +63,7 @@ update msg model =
         MouseOver pos -> case model.mouseDrag of
             Nothing -> model
             Just (mds, _, _) -> { model | mouseDrag = Just (mds, ortoDiaLock mds pos, pos) }
+        MouseOut -> model
 
 updateWords : Position -> Position -> List (Bool, WordR) -> Maybe (List (Bool, WordR))
 updateWords start end words =
@@ -92,29 +97,64 @@ viewBoard board words drag =
                 (abs (sx - x) == abs (sy - y) && x >= mnx && x <= mxx && y >= mny && y <= mxy)
                             || (sx == x && ex == x && y >= mny && y <= mxy)
                             || (sy == y && ey == y && x >= mnx && x <= mxx)
+
         selectedP = case drag of
             Just (origin, end, _) -> (\e -> betweenP origin end e)
             Nothing -> (\e -> False)
-        foundP (x, y) = words |> List.any (\(s, w) -> s && betweenP w.start w.end (x, y))
+
+        linePosition start end =
+            let ((sx, sy), (ex, ey)) = (start, end) in
+                ((sx * 30 + 15, sy * 30 + 15), (ex * 30 + 15, ey * 30 + 15))
+
+        renderChar rowIndex colIndex char =
+            let (x, y) = (colIndex * 30, rowIndex * 30) in
+            Svg.node "text" [ Svg.Attributes.x (String.fromInt (x + 15))
+                      , Svg.Attributes.y (String.fromInt (y + 20))
+                      , Svg.Attributes.style ("text-anchor: middle;"
+                                             ++ "font-size: 20px;"
+                                             ++ "user-select: none;"
+                                             ++ "color:" ++ (if selectedP (rowIndex, colIndex) then "red" else "black"))
+                      , Svg.Events.onMouseDown <| MouseDown <| (colIndex, rowIndex)
+                      , Svg.Events.onMouseOver <| MouseOver <| (colIndex, rowIndex)
+                      ]
+                      [ Svg.text <| String.fromChar char ]
+
+        renderStrikeThrough : WordR -> Svg.Svg Msg
+        renderStrikeThrough word =
+            let ((x1, y1), (x2, y2)) = linePosition word.start word.end
+            in
+            Svg.line [ Svg.Attributes.x1 (String.fromInt x1)
+                      , Svg.Attributes.y1 (String.fromInt y1)
+                      , Svg.Attributes.x2 (String.fromInt x2)
+                      , Svg.Attributes.y2 (String.fromInt y2)
+                      , Svg.Attributes.stroke "#FF0000"
+                      , Svg.Attributes.strokeOpacity "25%"
+                      , Svg.Attributes.strokeWidth "3"
+                      ] []
+        renderDrag : Position -> Position -> Svg.Svg Msg
+        renderDrag start end =
+            let ((x1, y1), (x2, y2)) = linePosition start end
+            in
+            Svg.line [ Svg.Attributes.x1 (String.fromInt x1)
+                      , Svg.Attributes.y1 (String.fromInt y1)
+                      , Svg.Attributes.x2 (String.fromInt x2)
+                      , Svg.Attributes.y2 (String.fromInt y2)
+                      , Svg.Attributes.stroke "#FF0000"
+                      , Svg.Attributes.strokeOpacity "75%"
+                      , Svg.Attributes.strokeWidth "3"
+                      ] []
+
     in
-        Html.div []
-        (board |> Array.indexedMap (\colIndex row ->
-                Html.div []
-                    (row |> Array.indexedMap (\rowIndex char ->
-                            Html.span [ Html.Attributes.style "padding" "5px"
-                                 , Html.Attributes.style "user-select" "none"
-                                 , Html.Attributes.style "border" (if selectedP (rowIndex, colIndex) then "1px solid red" else "none")
-                                 , Html.Attributes.style "background-color" (if foundP (rowIndex, colIndex) then "gray" else "none")
-                                 , Html.Events.onMouseDown <| MouseDown <| (rowIndex, colIndex)
-                                 , Html.Events.onMouseUp MouseUp
-                                 , Html.Events.onMouseOver <| MouseOver <| (rowIndex, colIndex)
-                                 ]
-                                 [ Html.text (String.fromChar char) ]
-                        )
-                        |> Array.toList
-                    )
-            ) |> Array.toList
-        )
+        Svg.svg [ Svg.Attributes.width (board |> Array.get 0 |> Maybe.map Array.length |> Maybe.withDefault 0 |> (*) 30 |> String.fromInt)
+                , Svg.Attributes.height (board |> Array.length |> (*) 30 |> String.fromInt)
+                , Svg.Events.onMouseOut MouseOut
+                , Svg.Events.onMouseUp MouseUp
+                ]
+            ((case drag of
+                    Nothing -> []
+                    Just (start, end, _) -> [renderDrag start end])
+                ++ (words |> List.filter Tuple.first |> List.map (Tuple.second >> renderStrikeThrough))
+                ++ (board |> Array.indexedMap (\rowIndex row -> (row |> Array.indexedMap (renderChar rowIndex) |> Array.toList)) |> Array.toList |> List.concat))
 
 viewWords : List (Bool, WordR) -> Html.Html Msg
 viewWords words =
