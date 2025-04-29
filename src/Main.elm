@@ -19,6 +19,8 @@ type alias Model =
 
 type alias WordR =
     { word : String
+    , description : String
+    , byDescription : Bool
     , start : Position
     , end : Position
     }
@@ -34,11 +36,11 @@ initialModel =
                              , Array.fromList [ 'T', 'E', 'S', 'T' ]
                              , Array.fromList [ 'S', 'E', 'A', 'L' ]
                              ]
-    , wordsToFind = [ {word = "ELMA", start = (0,0), end = (3,0)}
-                    , {word = "ARTS", start = (0,1), end = (3,1)}
-                    , {word = "TEST", start = (0,2), end = (3,2)}
-                    , {word = "SEAL", start = (0,3), end = (3,3)}
-                    , {word = "EATS", start = (0,0), end = (0,3)}
+    , wordsToFind = [ { word = "ELMA", description = "Personal name", byDescription = False, start = (0,0), end = (3,0) }
+                    , { word = "ARTS", description = "", byDescription = False, start = (0,1), end = (3,1) }
+                    , { word = "TEST", description = "Examination", byDescription = True, start = (0,2), end = (3,2) }
+                    , { word = "SEAL", description = "", byDescription = False, start = (0,3), end = (3,3) }
+                    , { word = "EATS", description = "Consumes", byDescription = True, start = (0,0), end = (0,3) }
                     ] |> List.map (\w -> (False, w))
     , mouseDrag = Nothing
     }
@@ -160,8 +162,13 @@ viewWords : List (Bool, WordR) -> Html.Html Msg
 viewWords words =
     Html.ul []
         (words |> List.map (\(s, word) ->
-                Html.li [ Html.Attributes.style "text-decoration" (if s then "line-through" else "none") ]
-                    [ Html.text word.word ])
+            Html.li [ Html.Attributes.style "text-decoration" (if s then "line-through" else "none")
+                    , (if word.byDescription then (Html.Attributes.style "font-style" "italic")
+                                             else (Html.Attributes.style "font-weight" "bold"))
+                    , Html.Attributes.title word.description
+                    ]
+                    [ Html.text (if not word.byDescription then word.word else
+                        (if not s then word.description else  word.word ++ " (" ++ word.description ++ ")" )) ])
         )
 
 -- Main
