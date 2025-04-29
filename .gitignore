@@ -1,0 +1,4 @@
+elm-stuff
+*.1.elm
+node_modules
+dist/
