@@ -160,16 +160,24 @@ viewBoard board words drag =
 
 viewWords : List (Bool, WordR) -> Html.Html Msg
 viewWords words =
-    Html.ul []
-        (words |> List.map (\(s, word) ->
-            Html.li [ Html.Attributes.style "text-decoration" (if s then "line-through" else "none")
-                    , (if word.byDescription then (Html.Attributes.style "font-style" "italic")
-                                             else (Html.Attributes.style "font-weight" "bold"))
-                    , Html.Attributes.title word.description
-                    ]
-                    [ Html.text (if not word.byDescription then word.word else
-                        (if not s then word.description else  word.word ++ " (" ++ word.description ++ ")" )) ])
-        )
+    let foundWords = words |> List.filter Tuple.first |> List.length
+        totalWords = words |> List.length
+        percentageFound = 100 * toFloat foundWords / toFloat totalWords
+    in
+    Html.div [] [
+        Html.h4 [] [ Html.text ("Found: " ++ (String.fromInt foundWords) ++ "/" ++ (String.fromInt totalWords) ++ " (" ++ (String.fromFloat percentageFound) ++ "%)")],
+        Html.ul []
+            (words |> List.map (\(s, word) ->
+                Html.li [ Html.Attributes.style "text-decoration" (if s then "line-through" else "none")
+                        , (if word.byDescription then (Html.Attributes.style "font-style" "italic")
+                                                else (Html.Attributes.style "font-weight" "bold"))
+                        , Html.Attributes.title word.description
+                        ]
+                        [ Html.text (if not word.byDescription then word.word else
+                            (if not s then word.description else  word.word ++ " (" ++ word.description ++ ")" )) ])
+            )
+    ]
+
 
 -- Main
 
