@@ -9,11 +9,32 @@ import Html.Events
 import Svg
 import Svg.Attributes
 import Svg.Events
+import Http
+import Json.Decode as Decode
+
+-- Helper
+
+listAt : Int -> List a -> Maybe a
+listAt idx lst = lst |> List.drop idx |> List.head
+
+listSet : Int -> a -> List a -> List a
+listSet idx elm lst = (lst |> List.take idx) ++ [elm] ++ (lst |> List.drop (idx+1))
+
+-- Main
+
+main : Program () Model Msg
+main =
+    Browser.element
+        { init = init
+        , update = update
+        , view = view
+        , subscriptions = always Sub.none
+        }
 
 -- Model
 
 type alias Model =
-    { showNewGameWindow: Bool
+    { newGameWindow: NewGameWindowModel
     , dictSources: List DictSource
     , board : Array (Array Char)
     , wordsToFind : List (Bool, WordR)
@@ -38,9 +59,27 @@ type alias Position = ( Int, Int )
 
 -- Initial Model
 
-initialModel : Model
-initialModel =
-    { showNewGameWindow = False
+type alias NewGameWindowModel =
+    { show: Bool
+    , dictionaryIndex: Maybe Int
+    , newDictName: String
+    , newDictUrl: String
+    , generateAllDirections: Bool
+    , allowSearchByWords: Bool
+    , allowSearchByDefinitions: Bool
+    }
+
+init : () -> (Model, Cmd Msg)
+init () =
+    ({ newGameWindow =
+        { show = False
+        , dictionaryIndex = Nothing
+        , newDictName = ""
+        , newDictUrl = ""
+        , generateAllDirections = True
+        , allowSearchByWords = True
+        , allowSearchByDefinitions = True
+        }
     , dictSources =
       [
         -- https://gist.github.com/BideoWego/60fbd40d5d1f0f1beca11ba95221dd38
@@ -66,33 +105,86 @@ initialModel =
                     , { word = "EATS", description = "Consumes", byDescription = True, start = (0,0), end = (0,3) }
                     ] |> List.map (\w -> (False, w))
     , mouseDrag = Nothing
-    }
+    }, Cmd.none)
 
-fetchDictSource : DictSource -> Result String DictSource
-fetchDictSource ds = case ds.content of
-    Just _ -> Err ""
-    Nothing -> Err "" --(Http.get {ds.url})
+fetchDictSource : (Maybe NewGameWindowModel) -> (Int, DictSource) -> Cmd Msg
+fetchDictSource mngwm (idx, ds) = case ds.content of
+    Just _ -> Cmd.none
+    Nothing -> Http.get
+        { url = ds.url
+        , expect = Http.expectJson (Result.map (\e -> {ds | content = Just e}) >> GotSource mngwm idx) (Decode.dict Decode.string)
+        }
+
 
 -- Update
 
 type Msg
-    = SetNewGameWindowState Bool
-    | GetSource String (DictSource -> Msg)
-    | GotSource
-    | NewGame DictSource
+    = NGWM NewGameWindowMsg
+    | GotSource (Maybe NewGameWindowModel) Int (Result Http.Error DictSource)
+    | AddNewDict
+    | NewGame NewGameWindowModel
+    | WordListReveal
+    | WordListCollapse
     | MouseDown Position
     | MouseUp
     | MouseOver Position
     | MouseOut
 
-update : Msg -> Model -> Model
+type NewGameWindowMsg
+    = SetVisibility Bool
+    | SetCurrentDict (Maybe Int)
+    | SetNewDictName String
+    | SetNewDictUrl String
+    | SetGenerateAllDirections Bool
+    | SetAllowSearchByWords Bool
+    | SetAllowSearchByDefinitions Bool
+
+update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
+    let cmdNone m = (m, Cmd.none)
+        setGameBoard m ngwm = case ngwm.dictionaryIndex of
+            Nothing -> Ok m
+            Just dsi -> case listAt dsi m.dictSources of
+                Nothing -> Ok m
+                Just ds -> case ds.content of
+                    Nothing -> Err ds
+                    Just c -> let newBoard = m.board -- TODO: word selection, board generation
+                              in Ok {m | board = newBoard}
+    in
     case msg of
-        SetNewGameWindowState b -> { model | showNewGameWindow = b }
-        GetSource url msg2 -> model
-        GotSource -> model
-        NewGame ds -> model
-        MouseDown pos -> { model | mouseDrag = Just (pos, pos) }
+        NGWM msg2 ->
+            let oldNewGameWindow = model.newGameWindow
+                newNewGameWindow = case msg2 of
+                    SetVisibility b -> { oldNewGameWindow | show = b }
+                    SetCurrentDict mi -> { oldNewGameWindow | dictionaryIndex = mi }
+                    SetNewDictName s -> { oldNewGameWindow | newDictName = s }
+                    SetNewDictUrl s -> { oldNewGameWindow | newDictUrl = s }
+                    SetGenerateAllDirections b -> { oldNewGameWindow | generateAllDirections = b }
+                    SetAllowSearchByWords b -> { oldNewGameWindow | allowSearchByWords = b }
+                    SetAllowSearchByDefinitions b -> { oldNewGameWindow | allowSearchByDefinitions = b }
+            in { model | newGameWindow = newNewGameWindow } |> cmdNone
+        GotSource mngwm idx rds -> cmdNone <| case rds of
+            Err _ -> model
+            Ok ds -> let newDictSources = listSet idx ds model.dictSources
+                         m2 = { model | dictSources = newDictSources } in
+                case mngwm of
+                    Nothing -> m2
+                    Just ngwm -> case setGameBoard m2 ngwm of
+                        Err _ -> m2
+                        Ok m3 -> m3
+        AddNewDict ->
+            let
+                newDictSource = DictSource model.newGameWindow.newDictName model.newGameWindow.newDictUrl Nothing
+                newDictSources = model.dictSources ++ [newDictSource]
+            in cmdNone { model | dictSources = newDictSources }
+        NewGame ngwm -> case ngwm.dictionaryIndex of
+            Nothing -> cmdNone model
+            Just idx -> case setGameBoard model ngwm of
+                Err ds -> (model, fetchDictSource (Just ngwm) (idx, ds))
+                Ok m -> cmdNone m
+        WordListReveal -> cmdNone model
+        WordListCollapse -> cmdNone model
+        MouseDown pos -> cmdNone { model | mouseDrag = Just (pos, pos) }
         MouseUp ->
             let tryFindWord : (Position, Position) -> List (Bool, WordR) -> Maybe (List (Bool, WordR))
                 tryFindWord (start, end) words =
@@ -100,7 +192,7 @@ update msg model =
                     if words |> List.any (\(_, a) -> p a) then
                         Just (words |> List.map (\(s, e) -> if not s && p e then (True, e) else (s, e)))
                     else Nothing
-            in case model.mouseDrag of
+            in cmdNone <| case model.mouseDrag of
                 Nothing -> model
                 Just (mds, mde) -> case tryFindWord (mds, mde) model.wordsToFind of
                     Just words -> { model | wordsToFind = words, mouseDrag = Nothing }
@@ -112,22 +204,22 @@ update msg model =
                     if ox == ex || oy == ey || abs (ox - ex) == abs (oy - ey) then end
                     else let ortP = if abs (ox - ex) <= abs (oy - ey) then (ox, ey) else (ex, oy) in
                             ortP -- TODO: test for projection to diagonal
-            in case model.mouseDrag of
+            in cmdNone <| case model.mouseDrag of
                 Nothing -> model
                 Just (mds, _) -> { model | mouseDrag = Just (mds, positionOrtoDiaLock mds pos) }
-        MouseOut -> model
+        MouseOut -> cmdNone model
 
 -- View
 
-view : Model -> Html.Html Msg
+view : Model -> Html Msg
 view model =
     Html.div [] ([
         Html.div []
-        [ Html.button [ Html.Events.onClick <| SetNewGameWindowState True ] [ Html.text "New Game" ]
+        [ Html.button [ Html.Events.onClick <| NGWM <| SetVisibility True ] [ Html.text "New Game" ]
         -- TODO: hide when not applicable
-        , Html.button [ Html.Events.onClick GotSource ] [ Html.text "Reveal exact words" ]
+        , Html.button [ Html.Events.onClick WordListReveal ] [ Html.text "Reveal exact words" ]
         -- TODO: icon
-        , Html.button [ Html.Events.onClick GotSource ] [ Html.text "Collapse" ]
+        , Html.button [ Html.Events.onClick WordListCollapse ] [ Html.text "Collapse" ]
         ],
         Html.div []
         [ viewBoard model.board model.wordsToFind model.mouseDrag
@@ -137,29 +229,36 @@ view model =
 
 viewNewGameWindow : Model -> List (Html Msg)
 viewNewGameWindow model =
-    let viewDictSource ds = Html.label [ ] [
-            Html.input [ Html.Attributes.type_ "radio"{-, |Html.Attributes.name "font-size", Html.Events.onInput msg|-}, Html.Attributes.checked False ] []
+    let viewDictSource i ds = Html.label [ Html.Attributes.title ds.url ] [
+            Html.input [ Html.Attributes.type_ "radio"
+                       , Html.Attributes.name "dictSource"
+                       , Html.Events.onClick <| NGWM <| SetCurrentDict <| Just <| i
+                       , Html.Attributes.checked (case model.newGameWindow.dictionaryIndex of
+                                                    Just i2 -> i == i2
+                                                    Nothing -> False) ] []
             , Html.text ds.name ]
-    in if model.showNewGameWindow then [Html.div []
+        chbx lbl s m = Html.label [] [ Html.input [ Html.Attributes.type_ "checkbox", Html.Events.onClick <| m <| not s, Html.Attributes.checked s ] [], Html.text lbl ]
+    in if model.newGameWindow.show then [Html.div []
         [
             Html.div [] [
                 Html.h4 [] [ Html.text "Select a dictionary:" ],
-                Html.fieldset [] (model.dictSources |> List.map (\e -> [viewDictSource e, Html.br [] []]) |> List.concat),
+                Html.fieldset [] (model.dictSources |> List.indexedMap (\i e -> [viewDictSource i e, Html.br [] []]) |> List.concat),
                 Html.div [] [
-                    Html.input [] [], Html.br [] [],
-                    Html.input [] [], Html.br [] [],
-                    Html.input [ Html.Attributes.type_ "button", Html.Attributes.value "Add custom dictionary" ] []
+                    Html.input [ Html.Events.onInput <| NGWM << SetNewDictName ] [], Html.br [] [],
+                    Html.input [ Html.Events.onInput <| NGWM << SetNewDictUrl ] [], Html.br [] [],
+                    Html.input [ Html.Events.onClick <| AddNewDict, Html.Attributes.type_ "button", Html.Attributes.value "Add custom dictionary" ] []
                 ]
             ]
         ,   Html.div [] [
                 Html.h4 [] [ Html.text "Select options:" ],
                 Html.div [] [
-                    Html.label [] [ Html.input [ Html.Attributes.type_ "checkbox" ] [], Html.text "Allow search by words" ], Html.br [] [],
-                    Html.label [] [ Html.input [ Html.Attributes.type_ "checkbox" ] [], Html.text "Allow search by definitions" ], Html.br [] []
+                    chbx "Generate words in all directions" model.newGameWindow.generateAllDirections (SetGenerateAllDirections >> NGWM), Html.br [] [],
+                    chbx "Allow search by words" model.newGameWindow.allowSearchByWords (SetAllowSearchByWords >> NGWM), Html.br [] [],
+                    chbx "Allow search by definitions" model.newGameWindow.allowSearchByDefinitions (SetAllowSearchByDefinitions >> NGWM), Html.br [] []
                 ]
             ]
-        ,   Html.button [ Html.Events.onClick <| SetNewGameWindowState False ] [ Html.text "New Game" ]
-        ,   Html.button [ Html.Events.onClick <| SetNewGameWindowState False ] [ Html.text "Cancel" ]
+        ,   Html.input [ Html.Attributes.type_ "button", Html.Events.onClick <| NewGame <| model.newGameWindow, Html.Attributes.value "New Game" ] []
+        ,   Html.input [ Html.Attributes.type_ "button", Html.Events.onClick <| NGWM <| SetVisibility False, Html.Attributes.value "Cancel" ] []
         ]] else []
 
 
@@ -247,10 +346,3 @@ viewWords words =
                             (if not s then word.description else  word.word ++ " (" ++ word.description ++ ")" )) ])
             )
     ]
-
-
--- Main
-
-main : Program () Model Msg
-main =
-    Browser.sandbox { init = initialModel, update = update, view = view }
