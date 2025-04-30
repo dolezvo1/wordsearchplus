@@ -20,6 +20,11 @@ listAt idx lst = lst |> List.drop idx |> List.head
 listSet : Int -> a -> List a -> List a
 listSet idx elm lst = (lst |> List.take idx) ++ [elm] ++ (lst |> List.drop (idx+1))
 
+list2W : List a -> List (a, a)
+list2W lst = (List.length lst - 1) |> List.range 0 |> List.filterMap (\i -> case List.drop i lst of
+                                        x :: y :: _ -> Just (x, y)
+                                        _ -> Nothing)
+
 -- Main
 
 main : Program () Model Msg
@@ -56,6 +61,7 @@ type alias WordR =
     }
 
 type alias Position = ( Int, Int )
+type alias PositionF = ( Float, Float )
 
 -- Initial Model
 
@@ -265,6 +271,10 @@ viewNewGameWindow model =
 viewBoard : Array (Array Char) -> List (Bool, WordR) -> Maybe (Position, Position) -> Html.Html Msg
 viewBoard board words drag =
     let
+        (letterW, fontSize, padding) = (50, 37, 20)
+        letterWH = letterW / 2
+        (boardW, boardH) = (board |> Array.get 0 |> Maybe.map Array.length |> Maybe.withDefault 0, board |> Array.length)
+
         betweenP start end (x, y) =
             let ((sx, sy), (ex, ey)) = (start, end)
                 ((mnx, mxx), (mny, mxy)) = ((min sx ex, max sx ex), (min sy ey, max sy ey)) in
@@ -276,29 +286,48 @@ viewBoard board words drag =
             Just (origin, end) -> (\e -> betweenP origin end e)
             Nothing -> (\e -> False)
 
+        linePosition : Position -> Position -> (PositionF, PositionF)
         linePosition start end =
             let ((sx, sy), (ex, ey)) = (start, end) in
-                ((sx * 30 + 15, sy * 30 + 15), (ex * 30 + 15, ey * 30 + 15))
+                ( (toFloat sx * letterW + letterWH, toFloat sy * letterW + letterWH)
+                , (toFloat ex * letterW + letterWH, toFloat ey * letterW + letterWH) )
 
+        renderBoarders = [ Svg.rect [ Svg.Attributes.x <| String.fromFloat <| 0
+                                    , Svg.Attributes.y <| String.fromFloat <| 0
+                                    , Svg.Attributes.width <| String.fromInt <| (boardW * letterW)
+                                    , Svg.Attributes.height <| String.fromInt <| (boardH * letterW)
+                                    , Svg.Attributes.fillOpacity "0%"
+                                    , Svg.Attributes.stroke "#000000"
+                                    , Svg.Attributes.strokeWidth "2"
+                                    ] []]
         renderChar rowIndex colIndex char =
-            let (x, y) = (colIndex * 30, rowIndex * 30) in
-            Svg.node "text" [ Svg.Attributes.x (String.fromInt (x + 15))
-                      , Svg.Attributes.y (String.fromInt (y + 20))
-                      , Svg.Attributes.style ("text-anchor: middle;"
-                                             ++ "font-size: 20px;"
-                                             ++ "user-select: none;"
-                                             ++ "color:" ++ (if selectedP (rowIndex, colIndex) then "red" else "black"))
-                      , Svg.Events.onMouseDown <| MouseDown <| (colIndex, rowIndex)
-                      , Svg.Events.onMouseOver <| MouseOver <| (colIndex, rowIndex)
-                      ]
-                      [ Svg.text <| String.fromChar char ]
+            let (x, y) = (toFloat <| colIndex * letterW, toFloat <| rowIndex * letterW) in
+            [ Svg.node "text" [ Svg.Attributes.x (String.fromFloat (x + letterWH))
+                              , Svg.Attributes.y (String.fromFloat (y + fontSize))
+                              , Svg.Attributes.style ("text-anchor: middle;"
+                                                    ++ "font-size: " ++ String.fromInt fontSize ++ "px;"
+                                                    ++ "user-select: none;"
+                                                    ++ "color:" ++ (if selectedP (rowIndex, colIndex) then "red" else "black"))
+                              ]
+                              [ Svg.text <| String.fromChar char ]
+            , Svg.rect [
+                       Svg.Attributes.x <| String.fromFloat x
+                     , Svg.Attributes.y <| String.fromFloat y
+                     , Svg.Attributes.width <| String.fromInt letterW
+                     , Svg.Attributes.height <| String.fromInt letterW
+                     , Svg.Attributes.fillOpacity "0%"
+                     , Svg.Events.onMouseDown <| MouseDown <| (colIndex, rowIndex)
+                     , Svg.Events.onMouseOver <| MouseOver <| (colIndex, rowIndex)
+                     ] []
+            ]
+
         renderStrikeThrough word =
             let ((x1, y1), (x2, y2)) = linePosition word.start word.end
             in
-            Svg.line [ Svg.Attributes.x1 (String.fromInt x1)
-                      , Svg.Attributes.y1 (String.fromInt y1)
-                      , Svg.Attributes.x2 (String.fromInt x2)
-                      , Svg.Attributes.y2 (String.fromInt y2)
+            Svg.line [ Svg.Attributes.x1 (String.fromFloat x1)
+                      , Svg.Attributes.y1 (String.fromFloat y1)
+                      , Svg.Attributes.x2 (String.fromFloat x2)
+                      , Svg.Attributes.y2 (String.fromFloat y2)
                       , Svg.Attributes.stroke "#FF0000"
                       , Svg.Attributes.strokeOpacity "25%"
                       , Svg.Attributes.strokeWidth "3"
@@ -306,26 +335,36 @@ viewBoard board words drag =
         renderDrag : Position -> Position -> Svg.Svg Msg
         renderDrag start end =
             let ((x1, y1), (x2, y2)) = linePosition start end
+                (cx, cy) = ((x1 + x2) / 2, (y1 + y2) / 2)
+                length = (+) letterW <| sqrt <| (((x2 - x1) * (x2 - x1)) + ((y2 - y1) * (y2 - y1)))
+                angleDeg = (+) 90 <| (*) (-180/pi) <| atan2 (x2 - x1) (y2 - y1)
             in
-            Svg.line [ Svg.Attributes.x1 (String.fromInt x1)
-                      , Svg.Attributes.y1 (String.fromInt y1)
-                      , Svg.Attributes.x2 (String.fromInt x2)
-                      , Svg.Attributes.y2 (String.fromInt y2)
-                      , Svg.Attributes.stroke "#FF0000"
-                      , Svg.Attributes.strokeOpacity "75%"
-                      , Svg.Attributes.strokeWidth "3"
-                      ] []
+                Svg.rect [ Svg.Attributes.x <| String.fromFloat <| (-length/2)
+                        , Svg.Attributes.y <| String.fromFloat <| (-letterW/2)
+                        , Svg.Attributes.width <| String.fromFloat <| length
+                        , Svg.Attributes.height <| String.fromInt <| letterW
+                        , Svg.Attributes.fillOpacity "0%"
+                        , Svg.Attributes.rx <| String.fromFloat <| letterWH
+                        , Svg.Attributes.ry <| String.fromFloat <| letterWH
+                        , Svg.Attributes.transform ("translate(" ++ String.fromFloat cx ++ ", " ++ String.fromFloat cy ++ ") rotate(" ++ String.fromFloat angleDeg ++ ")")
+                        , Svg.Attributes.stroke "#FF0000"
+                        , Svg.Attributes.strokeWidth "3"
+                        ] []
+
     in
-        Svg.svg [ Svg.Attributes.width (board |> Array.get 0 |> Maybe.map Array.length |> Maybe.withDefault 0 |> (*) 30 |> String.fromInt)
-                , Svg.Attributes.height (board |> Array.length |> (*) 30 |> String.fromInt)
+        Svg.svg [ Svg.Attributes.width (boardW |> (*) letterW |> (+) (2*padding) |> String.fromInt)
+                , Svg.Attributes.height (boardH |> (*) letterW |> (+) (2*padding) |> String.fromInt)
                 , Svg.Events.onMouseOut MouseOut
                 , Svg.Events.onMouseUp MouseUp
+                , Svg.Attributes.viewBox (String.fromInt -padding ++ " " ++ String.fromInt -padding
+                                            ++ " " ++ String.fromInt (boardW * letterW + 2*padding) ++ " " ++ String.fromInt (boardH * letterW + 2*padding))
                 ]
-            ((case drag of
+            (renderBoarders
+                ++ (case drag of
                     Nothing -> []
                     Just (start, end) -> [renderDrag start end])
                 ++ (words |> List.filter Tuple.first |> List.map (Tuple.second >> renderStrikeThrough))
-                ++ (board |> Array.indexedMap (\rowIndex row -> (row |> Array.indexedMap (renderChar rowIndex) |> Array.toList)) |> Array.toList |> List.concat))
+                ++ (board |> Array.indexedMap (\rowIndex row -> (row |> Array.indexedMap (renderChar rowIndex) |> Array.toList |> List.concat)) |> Array.toList |> List.concat))
 
 viewWords : List (Bool, WordR) -> Html.Html Msg
 viewWords words =
