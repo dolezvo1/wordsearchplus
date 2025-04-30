@@ -42,6 +42,7 @@ type alias Model =
     { newGameWindow: NewGameWindowModel
     , dictSources: List DictSource
     , board : Array (Array Char)
+    , revealExactWords: Bool
     , wordsToFind : List (Bool, WordR)
     , mouseDrag : Maybe (Position, Position)
     }
@@ -104,11 +105,13 @@ init () =
                              , Array.fromList [ 'T', 'E', 'S', 'T' ]
                              , Array.fromList [ 'S', 'E', 'A', 'L' ]
                              ]
-    , wordsToFind = [ { word = "ELMA", description = "Personal name", byDescription = False, start = (0,0), end = (3,0) }
+    , revealExactWords = False
+    , wordsToFind = [ { word = "ELM", description = "A purely functional programming language for the front-end", byDescription = False, start = (0,0), end = (2,0) }
                     , { word = "ARTS", description = "", byDescription = False, start = (0,1), end = (3,1) }
                     , { word = "TEST", description = "Examination", byDescription = True, start = (0,2), end = (3,2) }
                     , { word = "SEAL", description = "", byDescription = False, start = (0,3), end = (3,3) }
                     , { word = "EATS", description = "Consumes", byDescription = True, start = (0,0), end = (0,3) }
+                    , { word = "SET", description = "A collection of unique elements", byDescription = True, start = (0,3), end = (2,1) }
                     ] |> List.map (\w -> (False, w))
     , mouseDrag = Nothing
     }, Cmd.none)
@@ -188,7 +191,7 @@ update msg model =
             Just idx -> case setGameBoard model ngwm of
                 Err ds -> (model, fetchDictSource (Just ngwm) (idx, ds))
                 Ok m -> cmdNone m
-        WordListReveal -> cmdNone model
+        WordListReveal -> cmdNone { model | revealExactWords = True }
         WordListCollapse -> cmdNone model
         MouseDown pos -> cmdNone { model | mouseDrag = Just (pos, pos) }
         MouseUp ->
@@ -221,15 +224,13 @@ view : Model -> Html Msg
 view model =
     Html.div [] ([
         Html.div []
-        [ Html.button [ Html.Events.onClick <| NGWM <| SetVisibility True ] [ Html.text "New Game" ]
-        -- TODO: hide when not applicable
-        , Html.button [ Html.Events.onClick WordListReveal ] [ Html.text "Reveal exact words" ]
+        ([ Html.button [ Html.Events.onClick <| NGWM <| SetVisibility True ] [ Html.text "New Game" ]]
+         ++ (if not model.revealExactWords then [ Html.button [ Html.Events.onClick WordListReveal ] [ Html.text "Reveal exact words" ] ] else [])
         -- TODO: icon
-        , Html.button [ Html.Events.onClick WordListCollapse ] [ Html.text "Collapse" ]
-        ],
+         ++ [Html.button [ Html.Events.onClick WordListCollapse ] [ Html.text "Collapse" ] ]),
         Html.div []
         [ viewBoard model.board model.wordsToFind model.mouseDrag
-        , viewWords model.wordsToFind
+        , viewWords model.wordsToFind model.revealExactWords
         ]
     ] ++ (viewNewGameWindow model))
 
@@ -366,11 +367,12 @@ viewBoard board words drag =
                 ++ (words |> List.filter Tuple.first |> List.map (Tuple.second >> renderStrikeThrough))
                 ++ (board |> Array.indexedMap (\rowIndex row -> (row |> Array.indexedMap (renderChar rowIndex) |> Array.toList |> List.concat)) |> Array.toList |> List.concat))
 
-viewWords : List (Bool, WordR) -> Html.Html Msg
-viewWords words =
+viewWords : List (Bool, WordR) -> Bool -> Html.Html Msg
+viewWords words revealExactWords =
     let foundWords = words |> List.filter Tuple.first |> List.length
         totalWords = words |> List.length
-        percentageFound = 100 * toFloat foundWords / toFloat totalWords
+        percentageFound = let factor = 10 in
+                    (toFloat <| round <| (*) (100 * factor) <| toFloat foundWords / toFloat totalWords) / factor
     in
     Html.div [] [
         Html.h4 [] [ Html.text ("Found: " ++ (String.fromInt foundWords) ++ "/" ++ (String.fromInt totalWords) ++ " (" ++ (String.fromFloat percentageFound) ++ "%)")],
@@ -382,6 +384,6 @@ viewWords words =
                         , Html.Attributes.title word.description
                         ]
                         [ Html.text (if not word.byDescription then word.word else
-                            (if not s then word.description else  word.word ++ " (" ++ word.description ++ ")" )) ])
+                            (if not s && not revealExactWords  then word.description else  word.word ++ " (" ++ word.description ++ ")" )) ])
             )
     ]
