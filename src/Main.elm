@@ -1,6 +1,7 @@
 module Main exposing (..)
 
 import Array exposing (Array)
+import Dict exposing (Dict)
 import Browser
 import Html exposing (Html)
 import Html.Attributes
@@ -12,9 +13,17 @@ import Svg.Events
 -- Model
 
 type alias Model =
-    { board : Array (Array Char)
+    { showNewGameWindow: Bool
+    , dictSources: List DictSource
+    , board : Array (Array Char)
     , wordsToFind : List (Bool, WordR)
-    , mouseDrag : Maybe (Position, Position, Position)
+    , mouseDrag : Maybe (Position, Position)
+    }
+
+type alias DictSource =
+    { name: String
+    , url: String
+    , content: Maybe (Dict String String)
     }
 
 type alias WordR =
@@ -31,7 +40,21 @@ type alias Position = ( Int, Int )
 
 initialModel : Model
 initialModel =
-    { board = Array.fromList [ Array.fromList [ 'E', 'L', 'M', 'A' ]
+    { showNewGameWindow = False
+    , dictSources =
+      [
+        -- https://gist.github.com/BideoWego/60fbd40d5d1f0f1beca11ba95221dd38
+        { name = "English dictionary (~30K entries)"
+        , url = "https://gist.githubusercontent.com/BideoWego/60fbd40d5d1f0f1beca11ba95221dd38/raw/58fb4cce910fbf5fa67a2f0f1f619c09d7b1b373/dictionary.json"
+        , content = Nothing
+        }
+        -- https://github.com/hathibelagal/German-English-JSON-Dictionary/blob/master/german_english.json
+      , { name = "German-English dictionary (~4.5K entries)"
+        , url = "https://raw.githubusercontent.com/hathibelagal/German-English-JSON-Dictionary/refs/heads/master/german_english.json"
+        , content = Nothing
+        }
+      ]
+    , board = Array.fromList [ Array.fromList [ 'E', 'L', 'M', 'A' ]
                              , Array.fromList [ 'A', 'R', 'T', 'S' ]
                              , Array.fromList [ 'T', 'E', 'S', 'T' ]
                              , Array.fromList [ 'S', 'E', 'A', 'L' ]
@@ -45,10 +68,19 @@ initialModel =
     , mouseDrag = Nothing
     }
 
+fetchDictSource : DictSource -> Result String DictSource
+fetchDictSource ds = case ds.content of
+    Just _ -> Err ""
+    Nothing -> Err "" --(Http.get {ds.url})
+
 -- Update
 
 type Msg
-    = MouseDown Position
+    = SetNewGameWindowState Bool
+    | GetSource String (DictSource -> Msg)
+    | GotSource
+    | NewGame DictSource
+    | MouseDown Position
     | MouseUp
     | MouseOver Position
     | MouseOut
@@ -56,41 +88,82 @@ type Msg
 update : Msg -> Model -> Model
 update msg model =
     case msg of
-        MouseDown pos -> { model | mouseDrag = Just (pos, pos, pos) }
-        MouseUp -> case model.mouseDrag of
-            Nothing -> model
-            Just (mds, mde, _) -> case updateWords mds mde model.wordsToFind of
-                Just words -> { model | wordsToFind = words, mouseDrag = Nothing }
-                Nothing -> { model | mouseDrag = Nothing }
-        MouseOver pos -> case model.mouseDrag of
-            Nothing -> model
-            Just (mds, _, _) -> { model | mouseDrag = Just (mds, ortoDiaLock mds pos, pos) }
+        SetNewGameWindowState b -> { model | showNewGameWindow = b }
+        GetSource url msg2 -> model
+        GotSource -> model
+        NewGame ds -> model
+        MouseDown pos -> { model | mouseDrag = Just (pos, pos) }
+        MouseUp ->
+            let tryFindWord : (Position, Position) -> List (Bool, WordR) -> Maybe (List (Bool, WordR))
+                tryFindWord (start, end) words =
+                    let p e = (e.start == start && e.end == end) || (e.start == end && e.end == start) in
+                    if words |> List.any (\(_, a) -> p a) then
+                        Just (words |> List.map (\(s, e) -> if not s && p e then (True, e) else (s, e)))
+                    else Nothing
+            in case model.mouseDrag of
+                Nothing -> model
+                Just (mds, mde) -> case tryFindWord (mds, mde) model.wordsToFind of
+                    Just words -> { model | wordsToFind = words, mouseDrag = Nothing }
+                    Nothing -> { model | mouseDrag = Nothing }
+        MouseOver pos ->
+            let positionOrtoDiaLock : Position -> Position -> Position
+                positionOrtoDiaLock origin end =
+                    let ((ox, oy), (ex, ey)) = (origin, end) in
+                    if ox == ex || oy == ey || abs (ox - ex) == abs (oy - ey) then end
+                    else let ortP = if abs (ox - ex) <= abs (oy - ey) then (ox, ey) else (ex, oy) in
+                            ortP -- TODO: test for projection to diagonal
+            in case model.mouseDrag of
+                Nothing -> model
+                Just (mds, _) -> { model | mouseDrag = Just (mds, positionOrtoDiaLock mds pos) }
         MouseOut -> model
-
-updateWords : Position -> Position -> List (Bool, WordR) -> Maybe (List (Bool, WordR))
-updateWords start end words =
-    let p e = (e.start == start && e.end == end) || (e.start == end && e.end == start) in
-    if words |> List.any (\(_, a) -> p a) then
-        Just (words |> List.map (\(s, e) -> if not s && p e then (True, e) else (s, e)))
-    else Nothing
-
-ortoDiaLock : Position -> Position -> Position
-ortoDiaLock origin end =
-    let ((ox, oy), (ex, ey)) = (origin, end) in
-    if ox == ex || oy == ey || abs (ox - ex) == abs (oy - ey) then end
-    else let ortP = if abs (ox - ex) <= abs (oy - ey) then (ox, ey) else (ex, oy) in
-            ortP -- TODO: test for projection to diagonal
 
 -- View
 
 view : Model -> Html.Html Msg
 view model =
-    Html.div []
+    Html.div [] ([
+        Html.div []
+        [ Html.button [ Html.Events.onClick <| SetNewGameWindowState True ] [ Html.text "New Game" ]
+        -- TODO: hide when not applicable
+        , Html.button [ Html.Events.onClick GotSource ] [ Html.text "Reveal exact words" ]
+        -- TODO: icon
+        , Html.button [ Html.Events.onClick GotSource ] [ Html.text "Collapse" ]
+        ],
+        Html.div []
         [ viewBoard model.board model.wordsToFind model.mouseDrag
         , viewWords model.wordsToFind
         ]
+    ] ++ (viewNewGameWindow model))
 
-viewBoard : Array (Array Char) -> List (Bool, WordR) -> Maybe (Position, Position, Position) -> Html.Html Msg
+viewNewGameWindow : Model -> List (Html Msg)
+viewNewGameWindow model =
+    let viewDictSource ds = Html.label [ ] [
+            Html.input [ Html.Attributes.type_ "radio"{-, |Html.Attributes.name "font-size", Html.Events.onInput msg|-}, Html.Attributes.checked False ] []
+            , Html.text ds.name ]
+    in if model.showNewGameWindow then [Html.div []
+        [
+            Html.div [] [
+                Html.h4 [] [ Html.text "Select a dictionary:" ],
+                Html.fieldset [] (model.dictSources |> List.map (\e -> [viewDictSource e, Html.br [] []]) |> List.concat),
+                Html.div [] [
+                    Html.input [] [], Html.br [] [],
+                    Html.input [] [], Html.br [] [],
+                    Html.input [ Html.Attributes.type_ "button", Html.Attributes.value "Add custom dictionary" ] []
+                ]
+            ]
+        ,   Html.div [] [
+                Html.h4 [] [ Html.text "Select options:" ],
+                Html.div [] [
+                    Html.label [] [ Html.input [ Html.Attributes.type_ "checkbox" ] [], Html.text "Allow search by words" ], Html.br [] [],
+                    Html.label [] [ Html.input [ Html.Attributes.type_ "checkbox" ] [], Html.text "Allow search by definitions" ], Html.br [] []
+                ]
+            ]
+        ,   Html.button [ Html.Events.onClick <| SetNewGameWindowState False ] [ Html.text "New Game" ]
+        ,   Html.button [ Html.Events.onClick <| SetNewGameWindowState False ] [ Html.text "Cancel" ]
+        ]] else []
+
+
+viewBoard : Array (Array Char) -> List (Bool, WordR) -> Maybe (Position, Position) -> Html.Html Msg
 viewBoard board words drag =
     let
         betweenP start end (x, y) =
@@ -101,7 +174,7 @@ viewBoard board words drag =
                             || (sy == y && ey == y && x >= mnx && x <= mxx)
 
         selectedP = case drag of
-            Just (origin, end, _) -> (\e -> betweenP origin end e)
+            Just (origin, end) -> (\e -> betweenP origin end e)
             Nothing -> (\e -> False)
 
         linePosition start end =
@@ -120,8 +193,6 @@ viewBoard board words drag =
                       , Svg.Events.onMouseOver <| MouseOver <| (colIndex, rowIndex)
                       ]
                       [ Svg.text <| String.fromChar char ]
-
-        renderStrikeThrough : WordR -> Svg.Svg Msg
         renderStrikeThrough word =
             let ((x1, y1), (x2, y2)) = linePosition word.start word.end
             in
@@ -145,7 +216,6 @@ viewBoard board words drag =
                       , Svg.Attributes.strokeOpacity "75%"
                       , Svg.Attributes.strokeWidth "3"
                       ] []
-
     in
         Svg.svg [ Svg.Attributes.width (board |> Array.get 0 |> Maybe.map Array.length |> Maybe.withDefault 0 |> (*) 30 |> String.fromInt)
                 , Svg.Attributes.height (board |> Array.length |> (*) 30 |> String.fromInt)
@@ -154,7 +224,7 @@ viewBoard board words drag =
                 ]
             ((case drag of
                     Nothing -> []
-                    Just (start, end, _) -> [renderDrag start end])
+                    Just (start, end) -> [renderDrag start end])
                 ++ (words |> List.filter Tuple.first |> List.map (Tuple.second >> renderStrikeThrough))
                 ++ (board |> Array.indexedMap (\rowIndex row -> (row |> Array.indexedMap (renderChar rowIndex) |> Array.toList)) |> Array.toList |> List.concat))
 
