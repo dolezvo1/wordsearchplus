@@ -11,19 +11,10 @@ import Svg.Attributes
 import Svg.Events
 import Http
 import Json.Decode as Decode
+import Random
+import List.Extra
 
--- Helper
-
-listAt : Int -> List a -> Maybe a
-listAt idx lst = lst |> List.drop idx |> List.head
-
-listSet : Int -> a -> List a -> List a
-listSet idx elm lst = (lst |> List.take idx) ++ [elm] ++ (lst |> List.drop (idx+1))
-
-list2W : List a -> List (a, a)
-list2W lst = (List.length lst - 1) |> List.range 0 |> List.filterMap (\i -> case List.drop i lst of
-                                        x :: y :: _ -> Just (x, y)
-                                        _ -> Nothing)
+import BoardGenerator
 
 -- Main
 
@@ -124,14 +115,14 @@ fetchDictSource mngwm (idx, ds) = case ds.content of
         , expect = Http.expectJson (Result.map (\e -> {ds | content = Just e}) >> GotSource mngwm idx) (Decode.dict Decode.string)
         }
 
-
 -- Update
 
 type Msg
     = NGWM NewGameWindowMsg
-    | GotSource (Maybe NewGameWindowModel) Int (Result Http.Error DictSource)
     | AddNewDict
+    | GotSource (Maybe NewGameWindowModel) Int (Result Http.Error DictSource)
     | NewGame NewGameWindowModel
+    | GotGeneratedBoard (Result String (List (Bool, (String, String), ((Int, Int), (Int, Int))), (Array (Array Char))))
     | WordListReveal
     | WordListCollapse
     | MouseDown Position
@@ -152,13 +143,12 @@ update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
     let cmdNone m = (m, Cmd.none)
         setGameBoard m ngwm = case ngwm.dictionaryIndex of
-            Nothing -> Ok m
-            Just dsi -> case listAt dsi m.dictSources of
-                Nothing -> Ok m
+            Nothing -> cmdNone m
+            Just dsi -> case List.Extra.getAt dsi m.dictSources of
+                Nothing -> cmdNone m
                 Just ds -> case ds.content of
-                    Nothing -> Err ds
-                    Just c -> let newBoard = m.board -- TODO: word selection, board generation
-                              in Ok {m | board = newBoard}
+                    Nothing -> (model, fetchDictSource (Just ngwm) (dsi, ds))
+                    Just c -> (model, BoardGenerator.generateWordSearch 15 0.5 c ngwm.generateAllDirections 0.5 |> Random.generate GotGeneratedBoard)
     in
     case msg of
         NGWM msg2 ->
@@ -172,15 +162,18 @@ update msg model =
                     SetAllowSearchByWords b -> { oldNewGameWindow | allowSearchByWords = b }
                     SetAllowSearchByDefinitions b -> { oldNewGameWindow | allowSearchByDefinitions = b }
             in { model | newGameWindow = newNewGameWindow } |> cmdNone
-        GotSource mngwm idx rds -> cmdNone <| case rds of
-            Err _ -> model
-            Ok ds -> let newDictSources = listSet idx ds model.dictSources
+        GotSource mngwm idx rds -> case rds of
+            Err _ -> cmdNone model
+            Ok ds -> let newDictSources = List.Extra.setAt idx ds model.dictSources
                          m2 = { model | dictSources = newDictSources } in
                 case mngwm of
-                    Nothing -> m2
-                    Just ngwm -> case setGameBoard m2 ngwm of
-                        Err _ -> m2
-                        Ok m3 -> m3
+                    Nothing -> cmdNone m2
+                    Just ngwm -> setGameBoard m2 ngwm
+        GotGeneratedBoard res -> cmdNone <| case res of
+            Err _ -> model
+            Ok (newWords, newBoard) ->
+                let newWordsToFind = newWords |> List.map (\(bd, (w, d), (sp, ep)) -> (False, { word=w, description=d, byDescription=bd, start=sp, end=ep }))
+                in {model | board = newBoard, wordsToFind = newWordsToFind}
         AddNewDict ->
             let
                 newDictSource = DictSource model.newGameWindow.newDictName model.newGameWindow.newDictUrl Nothing
@@ -188,9 +181,7 @@ update msg model =
             in cmdNone { model | dictSources = newDictSources }
         NewGame ngwm -> case ngwm.dictionaryIndex of
             Nothing -> cmdNone model
-            Just idx -> case setGameBoard model ngwm of
-                Err ds -> (model, fetchDictSource (Just ngwm) (idx, ds))
-                Ok m -> cmdNone m
+            Just idx -> setGameBoard model ngwm
         WordListReveal -> cmdNone { model | revealExactWords = True }
         WordListCollapse -> cmdNone model
         MouseDown pos -> cmdNone { model | mouseDrag = Just (pos, pos) }
@@ -371,7 +362,7 @@ viewWords : List (Bool, WordR) -> Bool -> Html.Html Msg
 viewWords words revealExactWords =
     let foundWords = words |> List.filter Tuple.first |> List.length
         totalWords = words |> List.length
-        percentageFound = let factor = 10 in
+        percentageFound = let factor = 100 in
                     (toFloat <| round <| (*) (100 * factor) <| toFloat foundWords / toFloat totalWords) / factor
     in
     Html.div [] [
