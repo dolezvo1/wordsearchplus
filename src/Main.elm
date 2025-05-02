@@ -396,7 +396,9 @@ viewBoard board words drag =
                         ] []
 
     in
-        Svg.svg [ Svg.Attributes.width (boardW |> (*) letterW |> (+) (2*padding) |> String.fromInt)
+        Svg.svg [
+                  Svg.Attributes.style "max-height: calc(100vh - 50px);"
+                , Svg.Attributes.width (boardW |> (*) letterW |> (+) (2*padding) |> String.fromInt)
                 , Svg.Attributes.height (boardH |> (*) letterW |> (+) (2*padding) |> String.fromInt)
                 , Svg.Events.onMouseUp MouseUp
                 , Svg.Attributes.viewBox (String.fromInt -padding ++ " " ++ String.fromInt -padding
@@ -418,14 +420,16 @@ viewWords words revealExactWords =
     in
     Html.div [ Html.Attributes.style "width" "50%" ] [
         Html.h4 [] [ Html.text ("Found: " ++ (String.fromInt foundWords) ++ "/" ++ (String.fromInt totalWords) ++ " (" ++ (String.fromFloat percentageFound) ++ "%)")],
-        Html.ul []
-            (words |> List.map (\(s, word) ->
-                Html.li [ Html.Attributes.style "text-decoration" (if s then "line-through" else "none")
-                        , (if word.byDescription then (Html.Attributes.style "font-style" "italic")
-                                                else (Html.Attributes.style "font-weight" "bold"))
-                        , Html.Attributes.title word.description
-                        ]
-                        [ Html.text (if not word.byDescription then word.word else
-                            (if not s && not revealExactWords  then word.description else  word.word ++ " (" ++ word.description ++ ")" )) ])
-            )
+        Html.div [ Html.Attributes.style "overflow-y" "auto", Html.Attributes.style "max-height" "calc(100vh - 100px)" ] [
+            Html.ul []
+                (words |> List.map (\(s, word) ->
+                    Html.li [ Html.Attributes.style "text-decoration" (if s then "line-through" else "none")
+                            , (if word.byDescription then (Html.Attributes.style "font-style" "italic")
+                                                    else (Html.Attributes.style "font-weight" "bold"))
+                            , Html.Attributes.title word.description
+                            ]
+                            [ Html.text (if not word.byDescription then word.word else
+                                (if not s && not revealExactWords  then word.description else  word.word ++ " (" ++ word.description ++ ")" )) ])
+                )
+        ]
     ]
