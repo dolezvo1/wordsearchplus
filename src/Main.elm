@@ -32,10 +32,11 @@ main =
 type alias Model =
     { newGameWindow: NewGameWindowModel
     , dictSources: List DictSource
-    , board : Array (Array Char)
+    , board: Array (Array Char)
     , revealExactWords: Bool
-    , wordsToFind : List (Bool, WordR)
-    , mouseDrag : Maybe (Position, Position)
+    , wordsToFind: List (Bool, WordR)
+    , mouseDrag: Maybe (Position, Position)
+    , errorMessage: Maybe String
     }
 
 type alias DictSource =
@@ -107,6 +108,7 @@ init () =
                     , { word = "SET", description = "A collection of unique elements", byDescription = True, start = (0,3), end = (2,1) }
                     ] |> List.map (\w -> (False, w))
     , mouseDrag = Nothing
+    , errorMessage = Nothing
     }, Cmd.none)
 
 fetchDictSource : (Maybe NewGameWindowModel) -> (Int, DictSource) -> Cmd Msg
@@ -125,6 +127,7 @@ type Msg
     | GotSource (Maybe NewGameWindowModel) Int (Result Http.Error DictSource)
     | NewGame NewGameWindowModel
     | GotGeneratedBoard (Result String (List (Bool, (String, String), ((Int, Int), (Int, Int))), (Array (Array Char))))
+    | ClearErrorMessage
     | WordListReveal
     | WordListCollapse
     | MouseDown Position
@@ -166,14 +169,20 @@ update msg model =
                     SetFactor p -> { oldNewGameWindow | factor = p }
             in { model | newGameWindow = newNewGameWindow } |> cmdNone
         GotSource mngwm idx rds -> case rds of
-            Err _ -> cmdNone model
+            Err e -> let errorText = (case e of
+                                        Http.BadUrl s -> "Bad URL: " ++ s
+                                        Http.Timeout -> "Request Timeout"
+                                        Http.NetworkError -> "Network Error"
+                                        Http.BadStatus i -> "Bad HTTP Status: " ++ String.fromInt i
+                                        Http.BadBody s -> "Bad HTTP body: " ++ s)
+                in cmdNone { model | errorMessage = Just errorText }
             Ok ds -> let newDictSources = List.Extra.setAt idx ds model.dictSources
                          m2 = { model | dictSources = newDictSources } in
                 case mngwm of
                     Nothing -> cmdNone m2
                     Just ngwm -> setGameBoard m2
         GotGeneratedBoard res -> cmdNone <| case res of
-            Err _ -> model
+            Err e -> { model | errorMessage = Just e }
             Ok (newWords, newBoard) ->
                 let newWordsToFind = newWords |> List.map (\(bd, (w, d), (sp, ep)) -> (False, { word=w, description=d, byDescription=bd, start=sp, end=ep }))
                 in { model | board = newBoard, wordsToFind = newWordsToFind, revealExactWords = False }
@@ -185,6 +194,7 @@ update msg model =
         NewGame ngwm -> case ngwm.dictionaryIndex of
             Nothing -> cmdNone model
             Just idx -> let newNGWM = { ngwm | show = False } in setGameBoard { model | newGameWindow = newNGWM }
+        ClearErrorMessage -> cmdNone { model | errorMessage = Nothing }
         WordListReveal -> cmdNone { model | revealExactWords = True }
         WordListCollapse -> cmdNone model
         MouseDown pos -> cmdNone { model | mouseDrag = Just (pos, pos) }
@@ -234,7 +244,8 @@ view model =
         [ viewBoard model.board model.wordsToFind model.mouseDrag
         , viewWords model.wordsToFind model.revealExactWords
         ]
-    ] ++ (viewNewGameWindow model))
+    ] ++ (viewNewGameWindow model)
+      ++ (viewErrorMessage model))
 
 viewNewGameWindow : Model -> List (Html Msg)
 viewNewGameWindow model =
@@ -311,8 +322,34 @@ viewNewGameWindow model =
         ,   Html.input [ Html.Attributes.type_ "button", Html.Events.onClick <| NGWM <| SetVisibility False, Html.Attributes.value "Cancel" ] []
         ]]] else []
 
+viewErrorMessage : Model -> List (Html Msg)
+viewErrorMessage model =
+    case model.errorMessage of
+        Nothing -> []
+        Just errorMessage ->
+            [
+            Html.div [ Html.Attributes.style "position" "fixed"
+                    , Html.Attributes.style "top" "0"
+                    , Html.Attributes.style "left" "0"
+                    , Html.Attributes.style "width" "100%"
+                    , Html.Attributes.style "height" "100%"
+                    , Html.Attributes.style "background-color" "rgba(0, 0, 0, 0.75)"
+                    ] [
+                Html.div [ Html.Attributes.style "width" "90%"
+                        , Html.Attributes.style "max-width" "500px"
+                        , Html.Attributes.style "margin" "auto auto"
+                        , Html.Attributes.style "background-color" "white"
+                        , Html.Attributes.style "padding" "10px"
+                        , Html.Attributes.style "display" "flex"
+                        , Html.Attributes.style "flex-direction" "column" ]
+                [
+                        Html.h4 [] [ Html.text "Error:" ],
+                        Html.p [] [ Html.text errorMessage ],
+                    Html.input [ Html.Attributes.type_ "button", Html.Events.onClick <| ClearErrorMessage, Html.Attributes.value "Okay" ] []
+                ]]
+            ]
 
-viewBoard : Array (Array Char) -> List (Bool, WordR) -> Maybe (Position, Position) -> Html.Html Msg
+viewBoard : Array (Array Char) -> List (Bool, WordR) -> Maybe (Position, Position) -> Html Msg
 viewBoard board words drag =
     let
         (letterW, fontSize, padding) = (50, 37, 20)
