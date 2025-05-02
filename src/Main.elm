@@ -142,13 +142,13 @@ type NewGameWindowMsg
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
     let cmdNone m = (m, Cmd.none)
-        setGameBoard m ngwm = case ngwm.dictionaryIndex of
+        setGameBoard m = case m.newGameWindow.dictionaryIndex of
             Nothing -> cmdNone m
             Just dsi -> case List.Extra.getAt dsi m.dictSources of
                 Nothing -> cmdNone m
                 Just ds -> case ds.content of
-                    Nothing -> (model, fetchDictSource (Just ngwm) (dsi, ds))
-                    Just c -> (model, BoardGenerator.generateWordSearch 15 0.5 c ngwm.generateAllDirections 0.5 |> Random.generate GotGeneratedBoard)
+                    Nothing -> (m, fetchDictSource (Just m.newGameWindow) (dsi, ds))
+                    Just c -> (m, BoardGenerator.generateWordSearch 15 0.5 c m.newGameWindow.generateAllDirections 0.5 |> Random.generate GotGeneratedBoard)
     in
     case msg of
         NGWM msg2 ->
@@ -168,7 +168,7 @@ update msg model =
                          m2 = { model | dictSources = newDictSources } in
                 case mngwm of
                     Nothing -> cmdNone m2
-                    Just ngwm -> setGameBoard m2 ngwm
+                    Just ngwm -> setGameBoard m2
         GotGeneratedBoard res -> cmdNone <| case res of
             Err _ -> model
             Ok (newWords, newBoard) ->
@@ -181,7 +181,7 @@ update msg model =
             in cmdNone { model | dictSources = newDictSources }
         NewGame ngwm -> case ngwm.dictionaryIndex of
             Nothing -> cmdNone model
-            Just idx -> setGameBoard model ngwm
+            Just idx -> let newNGWM = { ngwm | show = False } in setGameBoard { model | newGameWindow = newNGWM }
         WordListReveal -> cmdNone { model | revealExactWords = True }
         WordListCollapse -> cmdNone model
         MouseDown pos -> cmdNone { model | mouseDrag = Just (pos, pos) }
@@ -219,7 +219,7 @@ view model =
          ++ (if not model.revealExactWords then [ Html.button [ Html.Events.onClick WordListReveal ] [ Html.text "Reveal exact words" ] ] else [])
         -- TODO: icon
          ++ [Html.button [ Html.Events.onClick WordListCollapse ] [ Html.text "Collapse" ] ]),
-        Html.div []
+        Html.div [ Html.Attributes.style "display" "flex" ]
         [ viewBoard model.board model.wordsToFind model.mouseDrag
         , viewWords model.wordsToFind model.revealExactWords
         ]
@@ -236,7 +236,21 @@ viewNewGameWindow model =
                                                     Nothing -> False) ] []
             , Html.text ds.name ]
         chbx lbl s m = Html.label [] [ Html.input [ Html.Attributes.type_ "checkbox", Html.Events.onClick <| m <| not s, Html.Attributes.checked s ] [], Html.text lbl ]
-    in if model.newGameWindow.show then [Html.div []
+    in if model.newGameWindow.show then [
+    Html.div [ Html.Attributes.style "position" "fixed"
+             , Html.Attributes.style "top" "0"
+             , Html.Attributes.style "left" "0"
+             , Html.Attributes.style "width" "100%"
+             , Html.Attributes.style "height" "100%"
+             , Html.Attributes.style "background-color" "rgba(0, 0, 0, 0.75)"
+             ] [
+        Html.div [ Html.Attributes.style "width" "90%"
+                 , Html.Attributes.style "max-width" "500px"
+                 , Html.Attributes.style "margin" "auto auto"
+                 , Html.Attributes.style "background-color" "white"
+                 , Html.Attributes.style "padding" "10px"
+                 , Html.Attributes.style "display" "flex"
+                 , Html.Attributes.style "flex-direction" "column" ]
         [
             Html.div [] [
                 Html.h4 [] [ Html.text "Select a dictionary:" ],
@@ -257,7 +271,7 @@ viewNewGameWindow model =
             ]
         ,   Html.input [ Html.Attributes.type_ "button", Html.Events.onClick <| NewGame <| model.newGameWindow, Html.Attributes.value "New Game" ] []
         ,   Html.input [ Html.Attributes.type_ "button", Html.Events.onClick <| NGWM <| SetVisibility False, Html.Attributes.value "Cancel" ] []
-        ]] else []
+        ]]] else []
 
 
 viewBoard : Array (Array Char) -> List (Bool, WordR) -> Maybe (Position, Position) -> Html.Html Msg
@@ -365,7 +379,7 @@ viewWords words revealExactWords =
         percentageFound = let factor = 100 in
                     (toFloat <| round <| (*) (100 * factor) <| toFloat foundWords / toFloat totalWords) / factor
     in
-    Html.div [] [
+    Html.div [ Html.Attributes.style "width" "50%" ] [
         Html.h4 [] [ Html.text ("Found: " ++ (String.fromInt foundWords) ++ "/" ++ (String.fromInt totalWords) ++ " (" ++ (String.fromFloat percentageFound) ++ "%)")],
         Html.ul []
             (words |> List.map (\(s, word) ->
