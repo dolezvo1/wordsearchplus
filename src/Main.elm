@@ -130,7 +130,6 @@ type Msg
     | MouseDown Position
     | MouseUp
     | MouseOver Position
-    | MouseOut
 
 type NewGameWindowMsg
     = SetVisibility Bool
@@ -206,12 +205,22 @@ update msg model =
                 positionOrtoDiaLock origin end =
                     let ((ox, oy), (ex, ey)) = (origin, end) in
                     if ox == ex || oy == ey || abs (ox - ex) == abs (oy - ey) then end
-                    else let ortP = if abs (ox - ex) <= abs (oy - ey) then (ox, ey) else (ex, oy) in
-                            ortP -- TODO: test for projection to diagonal
+                    else
+                        let hypot a b = sqrt (toFloat (a*a) + toFloat (b*b))
+                            (boardW, boardH) = (model.board |> Array.get 0 |> Maybe.map Array.length |> Maybe.withDefault 0, model.board |> Array.length)
+                            (dx, dy) = (ex - ox, ey - oy)
+                        in [(ox, ey), (ex, oy),
+                            (ox + dx, oy + dx), (ox + dy, oy + dy), (ox - dx, oy - dx), (ox - dy, oy - dy),
+                            (ox - dx, oy + dx), (ox - dy, oy + dy), (ox + dx, oy - dx), (ox + dy, oy - dy)]
+                                |> List.filter (\(cx, cy) -> cx >= 0 && cx < boardW && cy >= 0 && cy < boardH)
+                                |> List.map (\(cx, cy) -> (clamp 0 boardW cx, clamp 0 boardH cy))
+                                |> List.map (\(cx, cy) -> (hypot (ex - cx) (ey - cy), (cx, cy)))
+                                |> List.sort
+                                |> List.head |> Maybe.map (\(_, p) -> p) |> Maybe.withDefault (ex, ey)
+
             in cmdNone <| case model.mouseDrag of
                 Nothing -> model
                 Just (mds, _) -> { model | mouseDrag = Just (mds, positionOrtoDiaLock mds pos) }
-        MouseOut -> cmdNone model
 
 -- View
 
@@ -389,7 +398,6 @@ viewBoard board words drag =
     in
         Svg.svg [ Svg.Attributes.width (boardW |> (*) letterW |> (+) (2*padding) |> String.fromInt)
                 , Svg.Attributes.height (boardH |> (*) letterW |> (+) (2*padding) |> String.fromInt)
-                , Svg.Events.onMouseOut MouseOut
                 , Svg.Events.onMouseUp MouseUp
                 , Svg.Attributes.viewBox (String.fromInt -padding ++ " " ++ String.fromInt -padding
                                             ++ " " ++ String.fromInt (boardW * letterW + 2*padding) ++ " " ++ String.fromInt (boardH * letterW + 2*padding))
