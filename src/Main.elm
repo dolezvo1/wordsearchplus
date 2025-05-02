@@ -257,10 +257,16 @@ viewNewGameWindow model =
             Html.div [] [
                 Html.h4 [] [ Html.text "Select a dictionary:" ],
                 Html.fieldset [] (model.dictSources |> List.indexedMap (\i e -> [viewDictSource i e, Html.br [] []]) |> List.concat),
-                Html.div [] [
-                    Html.input [ Html.Events.onInput <| NGWM << SetNewDictName ] [], Html.br [] [],
-                    Html.input [ Html.Events.onInput <| NGWM << SetNewDictUrl ] [], Html.br [] [],
-                    Html.input [ Html.Events.onClick <| AddNewDict, Html.Attributes.type_ "button", Html.Attributes.value "Add custom dictionary" ] []
+                Html.div [ Html.Attributes.style "border" "1px solid gray"
+                         , Html.Attributes.style "padding" "10px" ] [
+                    Html.h5 [] [ Html.text "Add custom dictionary:" ],
+                    Html.label [] [
+                            Html.input [ Html.Events.onInput <| NGWM << SetNewDictName ] []
+                          , Html.text "Display name" ], Html.br [] [],
+                    Html.label [] [
+                            Html.input [ Html.Events.onInput <| NGWM << SetNewDictUrl ] []
+                          , Html.text "URL" ], Html.br [] [],
+                    Html.input [ Html.Events.onClick <| AddNewDict, Html.Attributes.type_ "button", Html.Attributes.value "Add custom" ] []
                 ]
             ]
         ,   Html.div [] [
@@ -273,12 +279,12 @@ viewNewGameWindow model =
                                        , Html.Attributes.min "1"
                             ] []
                           , Html.text "Number of words" ], Html.br [] []
-                    , Html.label [] [
+                    , Html.label [ Html.Attributes.title "Only generates words Forward, Down and ForwardDown when unselected" ] [
                               Html.input [ Html.Attributes.type_ "checkbox"
                             , Html.Events.onClick <| (NGWM << SetGenerateAllDirections) <| not model.newGameWindow.generateAllDirections
                             , Html.Attributes.checked model.newGameWindow.generateAllDirections ] []
                         , Html.text "Generate words in all directions" ], Html.br [] []
-                    , Html.label [] [
+                    , Html.label [ Html.Attributes.title "0 = always exact words, 100 = always descriptions" ] [
                             Html.input [ Html.Attributes.type_ "range"
                                        , Html.Events.onInput <| (NGWM << SetByDescProbability << (\e -> e / 100) << Maybe.withDefault 0 << String.toFloat)
                                        , Html.Attributes.value <| String.fromFloat <| (*) 100 <| model.newGameWindow.byDescriptionProbability
