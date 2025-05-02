@@ -14,14 +14,16 @@ stringAt idx s = s |> String.slice idx (idx+1) |> String.uncons |> Maybe.map Tup
 
 generateWordSearch : Int -> Float -> Dict String String -> Bool -> Float -> Generator (Result String (List (Bool, (String, String), ((Int, Int), (Int, Int))), Array (Array Char)))
 generateWordSearch count descProb dict allDirections maxDensity =
-    let sampleWords allWordsRandom descSamples =
+    let
+        wordTransform = String.filter (\c -> c /= ' ' && c /= '\'' && c /= '-' && c /= '(' && c /= ')')
+        sampleWords allWordsRandom descSamples =
             allWordsRandom |> List.take count
                            |> List.map2 (\p key -> (p < descProb, key |> String.toUpper, dict |> Dict.get key |> Maybe.withDefault "")) descSamples
         generateWordSearchAux (entropy, (descSamples, allWordsRandom)) =
             let words = sampleWords allWordsRandom descSamples
-            in createWordSearch (words |> List.map (\(_, w, _) -> w)) maxDensity entropy
-                |> Result.map (\(e, _) -> (words |> List.map (\(bd, w, d) -> (bd, (w, d), ((0,0),(0,0)))),
-                                           e |> List.map Array.fromList |> Array.fromList))
+            in createWordSearch (words |> List.map (\(bd, w, d) -> (wordTransform w, (w, bd, d)))) allDirections maxDensity entropy
+                |> Result.map (\(grid, ws, _) -> (ws |> List.map (\(_, (w, bd, d), p) -> (bd, (w, d), p)),
+                                           grid |> List.map Array.fromList |> Array.fromList))
     in
         dict |> Dict.keys |> Random.List.shuffle
             |> Random.pair (Random.list count (Random.float 0 1))
@@ -44,6 +46,16 @@ type alias Placement = (Posn, Orientation)
 type alias Posn = (Int, Int)
 type Orientation = Forward | Back | Up | Down | UpForward | UpBack | DownForward | DownBack
 
+dirVec : Orientation -> Posn
+dirVec o = case o of
+    Forward     -> (1,0)
+    Back        -> (-1,0)
+    Up          -> (0,-1)
+    Down        -> (0,1)
+    UpForward   -> (1,-1)
+    UpBack      -> (-1,-1)
+    DownForward -> (1,1)
+    DownBack    -> (-1,1)
 
 ------------------------
 -- START OF GENERATOR --
@@ -83,14 +95,14 @@ type Orientation = Forward | Back | Up | Down | UpForward | UpBack | DownForward
     @return: IO WordSearchGrid : The resulting grid made in the process.
              Error : If density is equal to 1 or 0 (such grids are not possible)
 -}
-createWordSearch : List String -> Float -> List Int -> Result String (WordSearchGrid, List Int)
-createWordSearch words maxDensity entropy =
+createWordSearch : List (String, a) -> Bool -> Float -> List Int -> Result String (WordSearchGrid, List (String, a, ((Int, Int), (Int, Int))), List Int)
+createWordSearch words allDirections maxDensity entropy =
     let
-        newEmptyGrid = getEmptyWordSearchGrid (getMinimumGridSize words maxDensity)
-        uWords       = words |> List.map String.toUpper
+        newEmptyGrid = getEmptyWordSearchGrid (getMinimumGridSize (words |> List.map Tuple.first) maxDensity)
+        uWords       = words |> List.map (\(w, data) -> (String.toUpper w, data))
     in if (maxDensity <= 0) || (maxDensity > 1) then Err "Invalid max density."
-        else if words == [] then Ok ([], entropy)
-            else createWordSearchAux uWords newEmptyGrid uWords entropy
+        else if words == [] then Ok ([], [], entropy)
+            else createWordSearchAux allDirections uWords [] newEmptyGrid uWords entropy
 
 
 {- createWordSearchAux
@@ -107,22 +119,25 @@ createWordSearch words maxDensity entropy =
              Error: If one of the words is the empty string (""). Such a word
              cannot be added to a grid.
 -}
-createWordSearchAux : List String -> WordSearchGrid -> List String -> List Int -> Result String (WordSearchGrid, List Int)
-createWordSearchAux words grid allWords entropy =
+createWordSearchAux : Bool -> List (String, a) -> List (String, a, ((Int, Int), (Int, Int))) -> WordSearchGrid -> List (String, a) -> List Int -> Result String (WordSearchGrid, List (String, a, ((Int, Int), (Int, Int))), List Int)
+createWordSearchAux allDirections words placedWordsAcc grid allWords entropy =
     case words of
-        [] -> let uniqueCharacters = allWords |> List.concatMap String.toList
-              in fillBlanks uniqueCharacters grid entropy
-        (w::restOfWords) -> if w == "" then Err "Invalid input word: Words length must be >= 1." else -- cant insert empty word into a grid
-            case getRandomPlacement w grid 0 entropy of
+        [] -> let uniqueCharacters = allWords |> List.concatMap (Tuple.first >> String.toList)
+              in fillBlanks uniqueCharacters grid entropy |> Result.map (\(g, e) -> (g, placedWordsAcc, e))
+        ((w,data)::restOfWords) -> if w == "" then Err "Invalid input word: Words length must be >= 1." else -- cant insert empty word into a grid
+            case getRandomPlacement allDirections w grid 0 entropy of
                 Err e -> Err e
-                Ok (placement, entropy2) ->
-                    if placement == ((0, 0), Up) then  -- word cant be placed - bigger grid needed
+                Ok (((sx,sy) as sp, dir), entropy2) ->
+                    if (sp, dir) == ((0, 0), Up) then  -- word cant be placed - bigger grid needed
                         let newBiggerDimension = floor ((List.length grid |> toFloat) * 1.5)
                             newBiggerGrid = (getEmptyWordSearchGrid newBiggerDimension)
-                        in createWordSearchAux allWords newBiggerGrid allWords entropy2
+                        in createWordSearchAux allDirections allWords [] newBiggerGrid allWords entropy2
                     else
-                        let updatedGrid = addWord w placement grid
-                        in createWordSearchAux restOfWords updatedGrid allWords entropy2
+                        let updatedGrid = addWord w (sp, dir) grid
+                            (dx, dy) = dirVec dir
+                            remainingLen = (String.length w) - 1
+                            newWord = (w, data, (sp, (sx + dx * remainingLen, sy + dy * remainingLen)))
+                        in createWordSearchAux allDirections restOfWords (newWord::placedWordsAcc) updatedGrid allWords entropy2
 
 --------------------------------------
 -- GETTING NEEDED DIMENSION OF GRID --
@@ -242,10 +257,10 @@ getEmptyWordSearchGrid n = '~' |> List.repeat n |> List.repeat n
     @return: A placement if one was found. If no placement was found, returns
              ((0,0), Nothing), which is an invalid placement.
 -}
-getRandomPlacement : String -> WordSearchGrid -> Int -> List Int -> Result String (Placement, List Int)
-getRandomPlacement word grid attempts entropy =
+getRandomPlacement : Bool -> String -> WordSearchGrid -> Int -> List Int -> Result String (Placement, List Int)
+getRandomPlacement allDirections word grid attempts entropy =
     if (attempts >= (List.length grid) * (List.length grid) * 4) then Ok (((0,0),Up), entropy)
-    else case getRandomOrientation entropy of
+    else case getRandomOrientation allDirections entropy of
         Err e -> Err e
         Ok (orientation, entropy2) ->
             case getRandomPosition (List.length grid) entropy2 of
@@ -257,7 +272,7 @@ getRandomPlacement word grid attempts entropy =
                     in if correct then
                         Ok (placement, entropy3)
                     else
-                        (getRandomPlacement word grid (attempts+1) entropy3)
+                        (getRandomPlacement allDirections word grid (attempts+1) entropy3)
 
 {- getRandomPosition
     @brief: Given the dimension of a grid, returns a random position within
@@ -277,12 +292,12 @@ getRandomPosition dimension entropy =
     @param: N/A
     @return: IO Orientation: A randomly generated orientation
 -}
-getRandomOrientation : List Int -> Result String (Orientation, List Int)
-getRandomOrientation entropy =
-    let orientations = [Forward, Back, Up, Down, UpForward, UpBack, DownForward, DownBack]
+getRandomOrientation : Bool -> List Int -> Result String (Orientation, List Int)
+getRandomOrientation allDirections entropy =
+    let orientations = [Forward, Down, DownForward, Back, Up, UpForward, UpBack, DownBack]
     in case entropy of
         [] -> Err "Insufficient entropy"
-        (e::remainingEntropy) -> Ok (orientations |> List.Extra.getAt (modBy (List.length orientations) e) |> Maybe.withDefault Forward, remainingEntropy)
+        (e::remainingEntropy) -> Ok (orientations |> List.Extra.getAt (modBy (if allDirections then 8 else 3) e) |> Maybe.withDefault Forward, remainingEntropy)
 
 {- isCorrectPlacement
     @brief: Given a word, placement and grid, will verify if the word can be placed in the
@@ -297,16 +312,7 @@ getRandomOrientation entropy =
 -}
 isCorrectPlacement : String -> Placement -> WordSearchGrid -> Bool
 isCorrectPlacement word ((c,r), orientation) grid =
-    let dirVec = (case orientation of
-                    Forward     -> (1,0)
-                    Back        -> (-1,0)
-                    Up          -> (0,-1)
-                    Down        -> (0,1)
-                    UpForward   -> (1,-1)
-                    UpBack      -> (-1,-1)
-                    DownForward -> (1,1)
-                    DownBack    -> (-1,1))
-    in isCorrectPlacementAux word (c,r) dirVec grid
+    isCorrectPlacementAux word (c,r) (dirVec orientation) grid
 
 {- isCorrectPlacementAux
     @brief: Given a word, position, orientation vector and grid, determines if the word
@@ -358,25 +364,7 @@ isOutOfBoundsC2 ((c,r) as position) grid = (c >= List.length grid) || (r >= List
 -}
 addWord : String -> Placement -> WordSearchGrid -> WordSearchGrid
 addWord word (((c,r), orientation) as placement) grid =
-    let
-        -- vectors for unit movement in orientations
-        forward     = (1,0)
-        back        = (-1,0)
-        up          = (0,-1)
-        down        = (0,1)
-        upForward   = (1,-1)
-        upBack      = (-1,-1)
-        downForward = (1,1)
-        downBack    = (-1,1)
-    in case orientation of
-        Forward     -> addWordAux word (c,r) forward grid
-        Back        -> addWordAux word (c,r) back grid
-        Up          -> addWordAux word (c,r) up grid
-        Down        -> addWordAux word (c,r) down grid
-        UpForward   -> addWordAux word (c,r) upForward grid
-        UpBack      -> addWordAux word (c,r) upBack grid
-        DownForward -> addWordAux word (c,r) downForward grid
-        DownBack    -> addWordAux word (c,r) downBack grid
+    addWordAux word (c,r) (dirVec orientation) grid
 
 
 {- addWordAux

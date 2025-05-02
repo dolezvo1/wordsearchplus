@@ -220,9 +220,7 @@ view model =
     Html.div [] ([
         Html.div []
         ([ Html.button [ Html.Events.onClick <| NGWM <| SetVisibility True ] [ Html.text "New Game" ]]
-         ++ (if not model.revealExactWords then [ Html.button [ Html.Events.onClick WordListReveal ] [ Html.text "Reveal exact words" ] ] else [])
-        -- TODO: icon
-         ++ [Html.button [ Html.Events.onClick WordListCollapse ] [ Html.text "Collapse" ] ]),
+         ++ (if not model.revealExactWords then [ Html.button [ Html.Events.onClick WordListReveal ] [ Html.text "Reveal exact words" ] ] else [])),
         Html.div [ Html.Attributes.style "display" "flex" ]
         [ viewBoard model.board model.wordsToFind model.mouseDrag
         , viewWords model.wordsToFind model.revealExactWords
