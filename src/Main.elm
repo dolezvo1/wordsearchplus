@@ -62,9 +62,10 @@ type alias NewGameWindowModel =
     , dictionaryIndex: Maybe Int
     , newDictName: String
     , newDictUrl: String
+    , wordCount: Int
     , generateAllDirections: Bool
-    , allowSearchByWords: Bool
-    , allowSearchByDefinitions: Bool
+    , byDescriptionProbability: Float
+    , factor: Float
     }
 
 init : () -> (Model, Cmd Msg)
@@ -74,9 +75,10 @@ init () =
         , dictionaryIndex = Nothing
         , newDictName = ""
         , newDictUrl = ""
+        , wordCount = 15
         , generateAllDirections = True
-        , allowSearchByWords = True
-        , allowSearchByDefinitions = True
+        , byDescriptionProbability = 0.5
+        , factor = 0.5
         }
     , dictSources =
       [
@@ -135,9 +137,10 @@ type NewGameWindowMsg
     | SetCurrentDict (Maybe Int)
     | SetNewDictName String
     | SetNewDictUrl String
+    | SetWordCount Int
     | SetGenerateAllDirections Bool
-    | SetAllowSearchByWords Bool
-    | SetAllowSearchByDefinitions Bool
+    | SetByDescProbability Float
+    | SetFactor Float
 
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
@@ -148,7 +151,7 @@ update msg model =
                 Nothing -> cmdNone m
                 Just ds -> case ds.content of
                     Nothing -> (m, fetchDictSource (Just m.newGameWindow) (dsi, ds))
-                    Just c -> (m, BoardGenerator.generateWordSearch 15 0.5 c m.newGameWindow.generateAllDirections 0.5 |> Random.generate GotGeneratedBoard)
+                    Just c -> (m, BoardGenerator.generateWordSearch m.newGameWindow.wordCount m.newGameWindow.byDescriptionProbability c m.newGameWindow.generateAllDirections m.newGameWindow.factor |> Random.generate GotGeneratedBoard)
     in
     case msg of
         NGWM msg2 ->
@@ -158,9 +161,10 @@ update msg model =
                     SetCurrentDict mi -> { oldNewGameWindow | dictionaryIndex = mi }
                     SetNewDictName s -> { oldNewGameWindow | newDictName = s }
                     SetNewDictUrl s -> { oldNewGameWindow | newDictUrl = s }
+                    SetWordCount i -> { oldNewGameWindow | wordCount = i }
                     SetGenerateAllDirections b -> { oldNewGameWindow | generateAllDirections = b }
-                    SetAllowSearchByWords b -> { oldNewGameWindow | allowSearchByWords = b }
-                    SetAllowSearchByDefinitions b -> { oldNewGameWindow | allowSearchByDefinitions = b }
+                    SetByDescProbability p -> { oldNewGameWindow | byDescriptionProbability = p }
+                    SetFactor p -> { oldNewGameWindow | factor = p }
             in { model | newGameWindow = newNewGameWindow } |> cmdNone
         GotSource mngwm idx rds -> case rds of
             Err _ -> cmdNone model
@@ -173,7 +177,7 @@ update msg model =
             Err _ -> model
             Ok (newWords, newBoard) ->
                 let newWordsToFind = newWords |> List.map (\(bd, (w, d), (sp, ep)) -> (False, { word=w, description=d, byDescription=bd, start=sp, end=ep }))
-                in {model | board = newBoard, wordsToFind = newWordsToFind}
+                in { model | board = newBoard, wordsToFind = newWordsToFind, revealExactWords = False }
         AddNewDict ->
             let
                 newDictSource = DictSource model.newGameWindow.newDictName model.newGameWindow.newDictUrl Nothing
@@ -264,9 +268,30 @@ viewNewGameWindow model =
         ,   Html.div [] [
                 Html.h4 [] [ Html.text "Select options:" ],
                 Html.div [] [
-                    chbx "Generate words in all directions" model.newGameWindow.generateAllDirections (SetGenerateAllDirections >> NGWM), Html.br [] [],
-                    chbx "Allow search by words" model.newGameWindow.allowSearchByWords (SetAllowSearchByWords >> NGWM), Html.br [] [],
-                    chbx "Allow search by definitions" model.newGameWindow.allowSearchByDefinitions (SetAllowSearchByDefinitions >> NGWM), Html.br [] []
+                      Html.label [] [
+                            Html.input [ Html.Attributes.type_ "number"
+                                       , Html.Events.onInput <| (NGWM << SetWordCount << Maybe.withDefault 0 << String.toInt)
+                                       , Html.Attributes.value <| String.fromInt <| model.newGameWindow.wordCount
+                                       , Html.Attributes.min "1"
+                            ] []
+                          , Html.text "Number of words" ], Html.br [] []
+                    , Html.label [] [
+                              Html.input [ Html.Attributes.type_ "checkbox"
+                            , Html.Events.onClick <| (NGWM << SetGenerateAllDirections) <| not model.newGameWindow.generateAllDirections
+                            , Html.Attributes.checked model.newGameWindow.generateAllDirections ] []
+                        , Html.text "Generate words in all directions" ], Html.br [] []
+                    , Html.label [] [
+                            Html.input [ Html.Attributes.type_ "range"
+                                       , Html.Events.onInput <| (NGWM << SetByDescProbability << (\e -> e / 100) << Maybe.withDefault 0 << String.toFloat)
+                                       , Html.Attributes.value <| String.fromFloat <| (*) 100 <| model.newGameWindow.byDescriptionProbability
+                            ] []
+                          , Html.text "Probability of search by description" ], Html.br [] []
+                    , Html.label [] [
+                            Html.input [ Html.Attributes.type_ "range"
+                                       , Html.Events.onInput <| (NGWM << SetFactor << (\e -> e / 100) << Maybe.withDefault 0 << String.toFloat)
+                                       , Html.Attributes.value <| String.fromFloat <| (*) 100 <| model.newGameWindow.factor
+                            ] []
+                          , Html.text "Maximum density factor" ], Html.br [] []
                 ]
             ]
         ,   Html.input [ Html.Attributes.type_ "button", Html.Events.onClick <| NewGame <| model.newGameWindow, Html.Attributes.value "New Game" ] []
