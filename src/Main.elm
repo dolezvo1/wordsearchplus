@@ -13,6 +13,9 @@ import Http
 import Json.Decode as Decode
 import Random
 import List.Extra
+import File
+import File.Select
+import Task
 
 import BoardGenerator
 
@@ -62,7 +65,9 @@ type alias NewGameWindowModel =
     { show: Bool
     , dictionaryIndex: Maybe Int
     , newDictName: String
+    , newDictSourceRemote: Bool
     , newDictUrl: String
+    , newDictFile: Maybe (String, Dict String String)
     , wordCount: Int
     , generateAllDirections: Bool
     , byDescriptionProbability: Float
@@ -75,7 +80,9 @@ init () =
         { show = False
         , dictionaryIndex = Nothing
         , newDictName = ""
+        , newDictSourceRemote = True
         , newDictUrl = ""
+        , newDictFile = Nothing
         , wordCount = 15
         , generateAllDirections = True
         , byDescriptionProbability = 0.5
@@ -123,6 +130,9 @@ fetchDictSource mngwm (idx, ds) = case ds.content of
 
 type Msg
     = NGWM NewGameWindowMsg
+    | RequestedDictFileDialog
+    | GotDictFile File.File
+    | GotDictFileContent File.File String
     | AddNewDict
     | GotSource (Maybe NewGameWindowModel) Int (Result Http.Error DictSource)
     | NewGame NewGameWindowModel
@@ -138,6 +148,7 @@ type NewGameWindowMsg
     = SetVisibility Bool
     | SetCurrentDict (Maybe Int)
     | SetNewDictName String
+    | SetDictSourceType Bool
     | SetNewDictUrl String
     | SetWordCount Int
     | SetGenerateAllDirections Bool
@@ -162,14 +173,34 @@ update msg model =
                     SetVisibility b -> { oldNewGameWindow | show = b }
                     SetCurrentDict mi -> { oldNewGameWindow | dictionaryIndex = mi }
                     SetNewDictName s -> { oldNewGameWindow | newDictName = s }
+                    SetDictSourceType b -> { oldNewGameWindow | newDictSourceRemote = b}
                     SetNewDictUrl s -> { oldNewGameWindow | newDictUrl = s }
                     SetWordCount i -> { oldNewGameWindow | wordCount = i }
                     SetGenerateAllDirections b -> { oldNewGameWindow | generateAllDirections = b }
                     SetByDescProbability p -> { oldNewGameWindow | byDescriptionProbability = p }
                     SetFactor p -> { oldNewGameWindow | factor = p }
             in { model | newGameWindow = newNewGameWindow } |> cmdNone
+        RequestedDictFileDialog -> (model, File.Select.file [] GotDictFile)
+        GotDictFile file -> (model, Task.perform (GotDictFileContent <| file) (File.toString file))
+        GotDictFileContent file fileContent ->
+            cmdNone <| case Decode.decodeString (Decode.dict Decode.string) fileContent of
+                Err e -> { model | errorMessage = Just <| Decode.errorToString <| e }
+                Ok dict ->
+                    let oldNewGameWindow = model.newGameWindow
+                        newNewGameWindow = { oldNewGameWindow | newDictFile = Just (File.name file, dict) }
+                    in { model | newGameWindow = newNewGameWindow }
+        AddNewDict ->
+            let ongw = model.newGameWindow
+                newDictSource = (DictSource ongw.newDictName
+                    (if ongw.newDictSourceRemote then ongw.newDictUrl else "")
+                    (ongw.newDictFile |> Maybe.map (\(n, c) -> c)))
+            in if newDictSource.url == "" && (newDictSource.content |> Maybe.map (\e -> False) |> Maybe.withDefault True) then
+                cmdNone model
+                else let newDictSources = model.dictSources ++ [newDictSource]
+                         newNewGameWindow = { ongw | newDictName = "", newDictUrl = "", newDictFile = Nothing }
+                    in cmdNone { model | dictSources = newDictSources, newGameWindow = newNewGameWindow }
         GotSource mngwm idx rds -> case rds of
-            Err e -> let errorText = (case e of
+            Err e -> let errorText = (case e of -- why???
                                         Http.BadUrl s -> "Bad URL: " ++ s
                                         Http.Timeout -> "Request Timeout"
                                         Http.NetworkError -> "Network Error"
@@ -186,11 +217,6 @@ update msg model =
             Ok (newWords, newBoard) ->
                 let newWordsToFind = newWords |> List.map (\(bd, (w, d), (sp, ep)) -> (False, { word=w, description=d, byDescription=bd, start=sp, end=ep }))
                 in { model | board = newBoard, wordsToFind = newWordsToFind, revealExactWords = False }
-        AddNewDict ->
-            let
-                newDictSource = DictSource model.newGameWindow.newDictName model.newGameWindow.newDictUrl Nothing
-                newDictSources = model.dictSources ++ [newDictSource]
-            in cmdNone { model | dictSources = newDictSources }
         NewGame ngwm -> case ngwm.dictionaryIndex of
             Nothing -> cmdNone model
             Just idx -> let newNGWM = { ngwm | show = False } in setGameBoard { model | newGameWindow = newNGWM }
@@ -277,20 +303,39 @@ viewNewGameWindow model =
             Html.div [] [
                 Html.h4 [] [ Html.text "Select a dictionary:" ],
                 Html.fieldset [] (model.dictSources |> List.indexedMap (\i e -> [viewDictSource i e, Html.br [] []]) |> List.concat),
-                Html.div [ Html.Attributes.style "border" "1px solid gray"
-                         , Html.Attributes.style "padding" "10px" ] [
-                    Html.h5 [] [ Html.text "Add custom dictionary:" ],
+                Html.details [ Html.Attributes.style "border" "1px solid gray"
+                             , Html.Attributes.style "padding" "10px"] [
+                    Html.summary [] [ Html.text "Add custom dictionary:" ],
+
                     Html.label [] [
-                            Html.input [ Html.Events.onInput <| NGWM << SetNewDictName ] []
+                            Html.input [ Html.Events.onInput <| NGWM << SetNewDictName
+                                       , Html.Attributes.value <| model.newGameWindow.newDictName ] []
                           , Html.text "Display name" ], Html.br [] [],
-                    Html.label [] [
-                            Html.input [ Html.Events.onInput <| NGWM << SetNewDictUrl ] []
-                          , Html.text "URL" ], Html.br [] [],
-                    Html.input [ Html.Events.onClick <| AddNewDict, Html.Attributes.type_ "button", Html.Attributes.value "Add custom" ] []
+                    Html.fieldset [] [
+                        Html.label [] [
+                            Html.input [ Html.Attributes.type_ "radio"
+                                       , Html.Events.onInput <| (\_ -> NGWM <| SetDictSourceType <| True)
+                                       , Html.Attributes.name "newDictSourceType"
+                                       , Html.Attributes.checked <| model.newGameWindow.newDictSourceRemote ] []
+                            , Html.input [ Html.Events.onInput <| NGWM << SetNewDictUrl
+                                        , Html.Attributes.value <| model.newGameWindow.newDictUrl ] []
+                            , Html.text "Remote URL" ], Html.br [] [],
+                        Html.label [] [
+                            Html.input [ Html.Attributes.type_ "radio"
+                                       , Html.Events.onInput <| (\_ -> NGWM <| SetDictSourceType <| False)
+                                       , Html.Attributes.name "newDictSourceType"
+                                       , Html.Attributes.checked <| not model.newGameWindow.newDictSourceRemote ] []
+                            , Html.button [ Html.Events.onClick <| RequestedDictFileDialog ] [
+                                    Html.text (case model.newGameWindow.newDictFile of
+                                                    Nothing -> "Select a local file"
+                                                    Just (fileName, _) -> fileName) ]
+                            , Html.text "Local file" ], Html.br [] []
+                    ],
+                    Html.input [ Html.Events.onClick <| AddNewDict, Html.Attributes.type_ "button", Html.Attributes.value "Add custom dictionary" ] []
                 ]
             ]
-        ,   Html.div [] [
-                Html.h4 [] [ Html.text "Select options:" ],
+        ,   Html.div [ Html.Attributes.style "margin-top" "10px" ] [
+                Html.h4 [] [ Html.text "Select game options:" ],
                 Html.div [] [
                       Html.label [] [
                             Html.input [ Html.Attributes.type_ "number"
