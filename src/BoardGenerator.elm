@@ -1,7 +1,7 @@
 
 -- File licensed under MIT
 
-module BoardGenerator exposing (generateWordSearch)
+module BoardGenerator exposing (WordType(..), generateWordSearch)
 
 import Array exposing (Array)
 import Dict exposing (Dict)
@@ -9,30 +9,33 @@ import Random exposing (Generator)
 import Random.List
 import List.Extra
 
+type WordType = Word | Description | None
+
 stringAt : Int -> String -> Maybe Char
 stringAt idx s = s |> String.slice idx (idx+1) |> String.uncons |> Maybe.map Tuple.first
 
-generateWordSearch : Int -> Float -> Dict String String -> Bool -> Float -> Generator (Result String (List (Bool, (String, String), ((Int, Int), (Int, Int))), Array (Array Char)))
-generateWordSearch count descProb dict allDirections maxDensity =
+generateWordSearch : Int -> (Float, Float) -> Dict String String -> Bool -> Float -> Generator (Result String (List (WordType, (String, String), ((Int, Int), (Int, Int))), Array (Array Char)))
+generateWordSearch count (wordProb, descProb) dict allDirections maxDensity =
     let
         wordTransform = String.filter (\c -> not (List.member c [' ', '\'', '-', '(', ')', '.', '!']))
-        sampleWords allWordsRandom descSamples =
+        sampleWords allWordsRandom typeSamples =
             allWordsRandom |> List.take count
-                           |> List.map2 (\p key -> (p < descProb, key |> String.toUpper, dict |> Dict.get key |> Maybe.withDefault "")) descSamples
-        generateWordSearchAux (entropy, (descSamples, allWordsRandom)) =
-            let words = sampleWords allWordsRandom descSamples
+                           |> List.map2 (\(ws, ds) key -> (if ws < wordProb then Word else if ds < descProb then Description else None,
+                                                            key |> String.toUpper, dict |> Dict.get key |> Maybe.withDefault "")) typeSamples
+        generateWordSearchAux (entropy, (typeSamples, allWordsRandom)) =
+            let words = sampleWords allWordsRandom typeSamples
             in createWordSearch (words |> List.map (\(bd, w, d) -> (wordTransform w, (w, bd, d)))) allDirections maxDensity entropy
                 |> Result.map (\(grid, ws, _) -> (ws |> List.map (\(_, (w, bd, d), p) -> (bd, (w, d), p)),
                                            grid |> List.map Array.fromList |> Array.fromList))
     in
         dict |> Dict.keys |> Random.List.shuffle
-            |> Random.pair (Random.list count (Random.float 0 1))
+            |> Random.pair (Random.list count (Random.pair (Random.float 0 1) (Random.float 0 1)))
             |> Random.pair (Random.list (count * count * 250) (Random.int Random.minInt Random.maxInt))
             |> Random.map generateWordSearchAux
 
 
 
--- The following code was originally written by Charles Powell, and then translated from Haskell to Elm
+-- The following code was originally written by Charles Powell (in Haskell)
 -- https://github.com/cekpowell/wordsearch-generator-solver/blob/main/Generator/src/Generator.hs
 
 

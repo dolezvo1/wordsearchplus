@@ -17,7 +17,7 @@ import File
 import File.Select
 import Task
 
-import BoardGenerator
+import BoardGenerator exposing (WordType(..))
 
 -- Main
 
@@ -49,11 +49,11 @@ type alias DictSource =
     }
 
 type alias WordR =
-    { word : String
-    , description : String
-    , byDescription : Bool
-    , start : Position
-    , end : Position
+    { word: String
+    , description: String
+    , wordType: WordType
+    , start: Position
+    , end: Position
     }
 
 type alias Position = ( Int, Int )
@@ -70,7 +70,7 @@ type alias NewGameWindowModel =
     , newDictFile: Maybe (String, Dict String String)
     , wordCount: Int
     , generateAllDirections: Bool
-    , byDescriptionProbability: Float
+    , typeProbabilities: (Float, Float)
     , factor: Float
     }
 
@@ -85,7 +85,7 @@ init () =
         , newDictFile = Nothing
         , wordCount = 15
         , generateAllDirections = True
-        , byDescriptionProbability = 0.5
+        , typeProbabilities = (0.5, 0.5)
         , factor = 0.5
         }
     , dictSources =
@@ -107,12 +107,12 @@ init () =
                              , Array.fromList [ 'S', 'E', 'A', 'L' ]
                              ]
     , revealExactWords = False
-    , wordsToFind = [ { word = "ELM", description = "A purely functional programming language for the front-end", byDescription = False, start = (0,0), end = (2,0) }
-                    , { word = "ARTS", description = "", byDescription = False, start = (0,1), end = (3,1) }
-                    , { word = "TEST", description = "Examination", byDescription = True, start = (0,2), end = (3,2) }
-                    , { word = "SEAL", description = "", byDescription = False, start = (0,3), end = (3,3) }
-                    , { word = "EATS", description = "Consumes", byDescription = True, start = (0,0), end = (0,3) }
-                    , { word = "SET", description = "A collection of unique elements", byDescription = True, start = (0,3), end = (2,1) }
+    , wordsToFind = [ { word = "ELM", description = "A purely functional programming language for the front-end", wordType = Word, start = (0,0), end = (2,0) }
+                    , { word = "TEST", description = "Examination", wordType = Description, start = (0,2), end = (3,2) }
+                    , { word = "SEAL", description = "A device for creation of impressions into wax or similar medium", wordType = None, start = (0,3), end = (3,3) }
+                    , { word = "EATS", description = "Consumes", wordType = Description, start = (0,0), end = (0,3) }
+                    , { word = "ARTS", description = "", wordType = Word, start = (0,1), end = (3,1) }
+                    , { word = "SET", description = "A collection of unique elements", wordType = Description, start = (0,3), end = (2,1) }
                     ] |> List.map (\w -> (False, w))
     , mouseDrag = Nothing
     , errorMessage = Nothing
@@ -136,7 +136,7 @@ type Msg
     | AddNewDict
     | GotSource (Maybe NewGameWindowModel) Int (Result Http.Error DictSource)
     | NewGame NewGameWindowModel
-    | GotGeneratedBoard (Result String (List (Bool, (String, String), ((Int, Int), (Int, Int))), (Array (Array Char))))
+    | GotGeneratedBoard (Result String (List (BoardGenerator.WordType, (String, String), ((Int, Int), (Int, Int))), (Array (Array Char))))
     | ClearErrorMessage
     | WordListReveal
     | WordListCollapse
@@ -152,7 +152,7 @@ type NewGameWindowMsg
     | SetNewDictUrl String
     | SetWordCount Int
     | SetGenerateAllDirections Bool
-    | SetByDescProbability Float
+    | SetTypeProbabilities (Float, Float)
     | SetFactor Float
 
 update : Msg -> Model -> (Model, Cmd Msg)
@@ -164,7 +164,7 @@ update msg model =
                 Nothing -> cmdNone m
                 Just ds -> case ds.content of
                     Nothing -> (m, fetchDictSource (Just m.newGameWindow) (dsi, ds))
-                    Just c -> (m, BoardGenerator.generateWordSearch m.newGameWindow.wordCount m.newGameWindow.byDescriptionProbability c m.newGameWindow.generateAllDirections m.newGameWindow.factor |> Random.generate GotGeneratedBoard)
+                    Just c -> (m, BoardGenerator.generateWordSearch m.newGameWindow.wordCount m.newGameWindow.typeProbabilities c m.newGameWindow.generateAllDirections m.newGameWindow.factor |> Random.generate GotGeneratedBoard)
     in
     case msg of
         NGWM msg2 ->
@@ -177,7 +177,7 @@ update msg model =
                     SetNewDictUrl s -> { oldNewGameWindow | newDictUrl = s }
                     SetWordCount i -> { oldNewGameWindow | wordCount = i }
                     SetGenerateAllDirections b -> { oldNewGameWindow | generateAllDirections = b }
-                    SetByDescProbability p -> { oldNewGameWindow | byDescriptionProbability = p }
+                    SetTypeProbabilities p -> { oldNewGameWindow | typeProbabilities = p }
                     SetFactor p -> { oldNewGameWindow | factor = p }
             in { model | newGameWindow = newNewGameWindow } |> cmdNone
         RequestedDictFileDialog -> (model, File.Select.file [] GotDictFile)
@@ -215,7 +215,7 @@ update msg model =
         GotGeneratedBoard res -> cmdNone <| case res of
             Err e -> { model | errorMessage = Just e }
             Ok (newWords, newBoard) ->
-                let newWordsToFind = newWords |> List.map (\(bd, (w, d), (sp, ep)) -> (False, { word=w, description=d, byDescription=bd, start=sp, end=ep }))
+                let newWordsToFind = newWords |> List.map (\(wt, (w, d), (sp, ep)) -> (False, { word=w, description=d, wordType=wt, start=sp, end=ep }))
                 in { model | board = newBoard, wordsToFind = newWordsToFind, revealExactWords = False }
         NewGame ngwm -> case ngwm.dictionaryIndex of
             Nothing -> cmdNone model
@@ -284,6 +284,8 @@ viewNewGameWindow model =
                                                     Nothing -> False) ] []
             , Html.text ds.name ]
         chbx lbl s m = Html.label [] [ Html.input [ Html.Attributes.type_ "checkbox", Html.Events.onClick <| m <| not s, Html.Attributes.checked s ] [], Html.text lbl ]
+        sToFP = String.toFloat >> Maybe.withDefault 0 >> (\e -> e / 100)
+        fpToS = (*) 100 >> String.fromFloat
     in if model.newGameWindow.show then [
     Html.div [ Html.Attributes.style "position" "fixed"
              , Html.Attributes.style "top" "0"
@@ -349,10 +351,16 @@ viewNewGameWindow model =
                             , Html.Events.onClick <| (NGWM << SetGenerateAllDirections) <| not model.newGameWindow.generateAllDirections
                             , Html.Attributes.checked model.newGameWindow.generateAllDirections ] []
                         , Html.text "Generate words in all directions" ], Html.br [] []
-                    , Html.label [ Html.Attributes.title "0 = always exact words, 100 = always descriptions" ] [
+                    , Html.label [ Html.Attributes.title "0 = never exact words, 100 = always exact words" ] [
                             Html.input [ Html.Attributes.type_ "range"
-                                       , Html.Events.onInput <| (NGWM << SetByDescProbability << (\e -> e / 100) << Maybe.withDefault 0 << String.toFloat)
-                                       , Html.Attributes.value <| String.fromFloat <| (*) 100 <| model.newGameWindow.byDescriptionProbability
+                                       , Html.Events.onInput <| (NGWM << SetTypeProbabilities << (\e -> (e, Tuple.second <| model.newGameWindow.typeProbabilities)) << sToFP)
+                                       , Html.Attributes.value <| fpToS <| Tuple.first <| model.newGameWindow.typeProbabilities
+                            ] []
+                          , Html.text "Probability of search by exact word" ], Html.br [] []
+                    , Html.label [ Html.Attributes.title "0 = never descriptions, 100 = always descriptions (when not exact words)" ] [
+                            Html.input [ Html.Attributes.type_ "range"
+                                       , Html.Events.onInput <| (NGWM << SetTypeProbabilities << (\e -> (Tuple.first <| model.newGameWindow.typeProbabilities, e)) << sToFP)
+                                       , Html.Attributes.value <| fpToS <| Tuple.second <| model.newGameWindow.typeProbabilities
                             ] []
                           , Html.text "Probability of search by description" ], Html.br [] []
                     , Html.label [] [
@@ -506,12 +514,16 @@ viewWords words revealExactWords =
             Html.ul []
                 (words |> List.map (\(s, word) ->
                     Html.li [ Html.Attributes.style "text-decoration" (if s then "line-through" else "none")
-                            , (if word.byDescription then (Html.Attributes.style "font-style" "italic")
-                                                    else (Html.Attributes.style "font-weight" "bold"))
-                            , Html.Attributes.title word.description
+                            , (case word.wordType of
+                                Word -> Html.Attributes.style "font-weight" "bold"
+                                Description -> Html.Attributes.style "font-style" "italic"
+                                None -> Html.Attributes.style "color" "red")
+                            , Html.Attributes.title (if (word.wordType /= None) || s || revealExactWords then word.description else "???")
                             ]
-                            [ Html.text (if not word.byDescription then word.word else
-                                (if not s && not revealExactWords  then word.description else  word.word ++ " (" ++ word.description ++ ")" )) ])
+                            [ Html.text (case word.wordType of
+                                            Word -> word.word
+                                            Description -> (if not s && not revealExactWords then word.description else  word.word ++ " (" ++ word.description ++ ")" )
+                                            None -> if not s && not revealExactWords then "???" else word.word) ])
                 )
         ]
     ]
