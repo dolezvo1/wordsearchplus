@@ -166,6 +166,7 @@ type NewGameWindowMsg
     | SetTypeProbabilities (Float, Float)
     | SetFactor Float
 
+
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
     let cmdNone m = (m, Cmd.none)
@@ -181,6 +182,16 @@ update msg model =
                             -- TODO: There is something wrong here. Either I'm using the `Random` package wrong,
                             --         or it suspends the view, preventing the loading screen from appearing???
                             in ({m | loading = True, newGameWindow = nngw}, BoardGenerator.generateWordSearch ngw.wordCount (ngw.lengthMin, if ngw.lengthUseMax then Just ngw.lengthMax else Nothing) ngw.typeProbabilities c ngw.generateAllDirections ngw.factor |> Random.generate GotGeneratedBoard)
+        wordsComp (sa, wa) (sb, wb) =
+            let (ar, br) = (sa || (wa.wordType == Word), sb || (wb.wordType == Word))
+            in if sa == sb && sa == True then compare wa.word wb.word
+               else if sa == True then GT
+               else if sb == True then LT
+               else if wa.wordType == wb.wordType then
+                    (if wa.wordType == Word then compare wa.word wb.word else EQ)
+               else if wa.wordType == Word then LT
+               else if wa.wordType == None || wb.wordType == Word then GT else LT
+        wordSort l = l |> List.sortWith wordsComp
     in
     case msg of
         NGWM msg2 ->
@@ -235,7 +246,7 @@ update msg model =
             Err e -> { model | loading = False, errorMessage = Just e }
             Ok (newWords, newBoard) ->
                 let newWordsToFind = newWords |> List.map (\(wt, (w, d), (sp, ep)) -> (False, { word=w, description=d, wordType=wt, start=sp, end=ep }))
-                in { model | loading = False, board = newBoard, wordsToFind = newWordsToFind, revealExactWords = False }
+                in { model | loading = False, board = newBoard, wordsToFind = wordSort newWordsToFind, revealExactWords = False }
         NewGame ngwm -> case ngwm.dictionaryIndex of
             Nothing -> cmdNone model
             Just idx -> let newNGWM = { ngwm | show = False }
@@ -254,7 +265,7 @@ update msg model =
             in cmdNone <| case model.mouseDrag of
                 Nothing -> model
                 Just (mds, mde) -> case tryFindWord (mds, mde) model.wordsToFind of
-                    Just words -> { model | wordsToFind = words, mouseDrag = Nothing }
+                    Just words -> { model | wordsToFind = wordSort words, mouseDrag = Nothing }
                     Nothing -> { model | mouseDrag = Nothing }
         MouseOver pos ->
             let positionOrtoDiaLock : Position -> Position -> Position
