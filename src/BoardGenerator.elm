@@ -14,18 +14,21 @@ type WordType = Word | Description | None
 stringAt : Int -> String -> Maybe Char
 stringAt idx s = s |> String.slice idx (idx+1) |> String.uncons |> Maybe.map Tuple.first
 
-generateWordSearch : Int -> (Float, Float) -> Dict String String -> Bool -> Float -> Generator (Result String (List (WordType, (String, String), ((Int, Int), (Int, Int))), Array (Array Char)))
-generateWordSearch count (wordProb, descProb) dict allDirections maxDensity =
+-- TODO: This is really slow. Storing the wordlist in an Array might help?
+generateWordSearch : Int -> (Int, Maybe Int) -> (Float, Float) -> Dict String String -> Bool -> Float -> Generator (Result String (List (WordType, (String, String), ((Int, Int), (Int, Int))), Array (Array Char)))
+generateWordSearch count (minSize, mMaxSize) (wordProb, descProb) dict allDirections maxDensity =
     let
-        wordTransform = String.filter (\c -> not (List.member c [' ', '\'', '-', '(', ')', '.', '!']))
+        wordTransform w = w |> String.toUpper |> String.filter (\c -> not (List.member c [' ', '\'', '-', '(', ')', '.', '!']))
         sampleWords allWordsRandom typeSamples =
-            allWordsRandom |> List.take count
-                           |> List.map2 (\(ws, ds) key -> (if ws < wordProb then Word else if ds < descProb then Description else None,
-                                                            key |> String.toUpper, dict |> Dict.get key |> Maybe.withDefault "")) typeSamples
+            allWordsRandom |> List.map (\w -> (wordTransform w, (w |> String.toUpper, dict |> Dict.get w |> Maybe.withDefault "")))
+                           |> List.filter (\(nw, _) -> String.length nw >= minSize)
+                           |> (mMaxSize |> Maybe.map (\max -> List.filter (\(nw, _) -> String.length nw <= max)) |> Maybe.withDefault (\e -> e))
+                           |> List.map2 (\(ws, ds) (nw, (ow, d)) -> (nw, (if ws < wordProb then Word else if ds < descProb then Description else None, ow, d))) typeSamples
+                           |> List.take count
         generateWordSearchAux (entropy, (typeSamples, allWordsRandom)) =
             let words = sampleWords allWordsRandom typeSamples
-            in createWordSearch (words |> List.map (\(bd, w, d) -> (wordTransform w, (w, bd, d)))) allDirections maxDensity entropy
-                |> Result.map (\(grid, ws, _) -> (ws |> List.map (\(_, (w, bd, d), p) -> (bd, (w, d), p)),
+            in createWordSearch words allDirections maxDensity entropy
+                |> Result.map (\(grid, ws, _) -> (ws |> List.map (\(_, (wt, ow, d), p) -> (wt, (ow, d), p)),
                                            grid |> List.map Array.fromList |> Array.fromList))
     in
         dict |> Dict.keys |> Random.List.shuffle

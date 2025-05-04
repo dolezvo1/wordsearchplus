@@ -40,6 +40,7 @@ type alias Model =
     , wordsToFind: List (Bool, WordR)
     , mouseDrag: Maybe (Position, Position)
     , errorMessage: Maybe String
+    , loading: Bool
     }
 
 type alias DictSource =
@@ -69,6 +70,9 @@ type alias NewGameWindowModel =
     , newDictUrl: String
     , newDictFile: Maybe (String, Dict String String)
     , wordCount: Int
+    , lengthMin: Int
+    , lengthMax: Int
+    , lengthUseMax: Bool
     , generateAllDirections: Bool
     , typeProbabilities: (Float, Float)
     , factor: Float
@@ -78,15 +82,18 @@ init : () -> (Model, Cmd Msg)
 init () =
     ({ newGameWindow =
         { show = False
-        , dictionaryIndex = Nothing
+        , dictionaryIndex = Just 0
         , newDictName = ""
         , newDictSourceRemote = True
         , newDictUrl = ""
         , newDictFile = Nothing
         , wordCount = 15
+        , lengthMin = 4
+        , lengthMax = 20
+        , lengthUseMax = False
         , generateAllDirections = True
-        , typeProbabilities = (0.5, 0.5)
-        , factor = 0.5
+        , typeProbabilities = (0.5, 1.0)
+        , factor = 1.0
         }
     , dictSources =
       [
@@ -111,11 +118,12 @@ init () =
                     , { word = "TEST", description = "Examination", wordType = Description, start = (0,2), end = (3,2) }
                     , { word = "SEAL", description = "A device for creation of impressions into wax or similar medium", wordType = None, start = (0,3), end = (3,3) }
                     , { word = "EATS", description = "Consumes", wordType = Description, start = (0,0), end = (0,3) }
-                    , { word = "ARTS", description = "", wordType = Word, start = (0,1), end = (3,1) }
+                    , { word = "ARTS", description = "The conscious use of the imagination in the production of objects intended to be contemplated or appreciated as beautiful, as in the arrangement of forms, sounds, or words (Merriam-Webster)", wordType = Word, start = (0,1), end = (3,1) }
                     , { word = "SET", description = "A collection of unique elements", wordType = Description, start = (0,3), end = (2,1) }
                     ] |> List.map (\w -> (False, w))
     , mouseDrag = Nothing
     , errorMessage = Nothing
+    , loading = False
     }, Cmd.none)
 
 fetchDictSource : (Maybe NewGameWindowModel) -> (Int, DictSource) -> Cmd Msg
@@ -151,6 +159,9 @@ type NewGameWindowMsg
     | SetDictSourceType Bool
     | SetNewDictUrl String
     | SetWordCount Int
+    | SetLengthMin Int
+    | SetLengthMax Int
+    | SetLengthUseMax Bool
     | SetGenerateAllDirections Bool
     | SetTypeProbabilities (Float, Float)
     | SetFactor Float
@@ -158,13 +169,18 @@ type NewGameWindowMsg
 update : Msg -> Model -> (Model, Cmd Msg)
 update msg model =
     let cmdNone m = (m, Cmd.none)
-        setGameBoard m = case m.newGameWindow.dictionaryIndex of
-            Nothing -> cmdNone m
-            Just dsi -> case List.Extra.getAt dsi m.dictSources of
+        setGameBoard m =
+            let ngw = m.newGameWindow
+            in case ngw.dictionaryIndex of
                 Nothing -> cmdNone m
-                Just ds -> case ds.content of
-                    Nothing -> (m, fetchDictSource (Just m.newGameWindow) (dsi, ds))
-                    Just c -> (m, BoardGenerator.generateWordSearch m.newGameWindow.wordCount m.newGameWindow.typeProbabilities c m.newGameWindow.generateAllDirections m.newGameWindow.factor |> Random.generate GotGeneratedBoard)
+                Just dsi -> case List.Extra.getAt dsi m.dictSources of
+                    Nothing -> cmdNone m
+                    Just ds -> case ds.content of
+                        Nothing -> ({m | loading = True}, fetchDictSource (Just ngw) (dsi, ds))
+                        Just c -> let nngw = { ngw | show = False }
+                            -- TODO: There is something wrong here. Either I'm using the `Random` package wrong,
+                            --         or it suspends the view, preventing the loading screen from appearing???
+                            in ({m | loading = True, newGameWindow = nngw}, BoardGenerator.generateWordSearch ngw.wordCount (ngw.lengthMin, if ngw.lengthUseMax then Just ngw.lengthMax else Nothing) ngw.typeProbabilities c ngw.generateAllDirections ngw.factor |> Random.generate GotGeneratedBoard)
     in
     case msg of
         NGWM msg2 ->
@@ -176,6 +192,9 @@ update msg model =
                     SetDictSourceType b -> { oldNewGameWindow | newDictSourceRemote = b}
                     SetNewDictUrl s -> { oldNewGameWindow | newDictUrl = s }
                     SetWordCount i -> { oldNewGameWindow | wordCount = i }
+                    SetLengthMin i -> { oldNewGameWindow | lengthMin = i }
+                    SetLengthMax i -> { oldNewGameWindow | lengthMax = i }
+                    SetLengthUseMax b -> { oldNewGameWindow | lengthUseMax = b }
                     SetGenerateAllDirections b -> { oldNewGameWindow | generateAllDirections = b }
                     SetTypeProbabilities p -> { oldNewGameWindow | typeProbabilities = p }
                     SetFactor p -> { oldNewGameWindow | factor = p }
@@ -194,7 +213,7 @@ update msg model =
                 newDictSource = (DictSource ongw.newDictName
                     (if ongw.newDictSourceRemote then ongw.newDictUrl else "")
                     (ongw.newDictFile |> Maybe.map (\(n, c) -> c)))
-            in if newDictSource.url == "" && (newDictSource.content |> Maybe.map (\e -> False) |> Maybe.withDefault True) then
+            in if newDictSource.name == "" || (newDictSource.url == "" && (newDictSource.content |> Maybe.map (\e -> False) |> Maybe.withDefault True)) then
                 cmdNone model
                 else let newDictSources = model.dictSources ++ [newDictSource]
                          newNewGameWindow = { ongw | newDictName = "", newDictUrl = "", newDictFile = Nothing }
@@ -206,20 +225,21 @@ update msg model =
                                         Http.NetworkError -> "Network Error"
                                         Http.BadStatus i -> "Bad HTTP Status: " ++ String.fromInt i
                                         Http.BadBody s -> "Bad HTTP body: " ++ s)
-                in cmdNone { model | errorMessage = Just errorText }
+                in cmdNone { model | loading = False, errorMessage = Just errorText }
             Ok ds -> let newDictSources = List.Extra.setAt idx ds model.dictSources
                          m2 = { model | dictSources = newDictSources } in
                 case mngwm of
                     Nothing -> cmdNone m2
                     Just ngwm -> setGameBoard m2
         GotGeneratedBoard res -> cmdNone <| case res of
-            Err e -> { model | errorMessage = Just e }
+            Err e -> { model | loading = False, errorMessage = Just e }
             Ok (newWords, newBoard) ->
                 let newWordsToFind = newWords |> List.map (\(wt, (w, d), (sp, ep)) -> (False, { word=w, description=d, wordType=wt, start=sp, end=ep }))
-                in { model | board = newBoard, wordsToFind = newWordsToFind, revealExactWords = False }
+                in { model | loading = False, board = newBoard, wordsToFind = newWordsToFind, revealExactWords = False }
         NewGame ngwm -> case ngwm.dictionaryIndex of
             Nothing -> cmdNone model
-            Just idx -> let newNGWM = { ngwm | show = False } in setGameBoard { model | newGameWindow = newNGWM }
+            Just idx -> let newNGWM = { ngwm | show = False }
+                        in setGameBoard { model | loading = True, newGameWindow = newNGWM }
         ClearErrorMessage -> cmdNone { model | errorMessage = Nothing }
         WordListReveal -> cmdNone { model | revealExactWords = True }
         WordListCollapse -> cmdNone model
@@ -271,7 +291,8 @@ view model =
         , viewWords model.wordsToFind model.revealExactWords
         ]
     ] ++ (viewNewGameWindow model)
-      ++ (viewErrorMessage model))
+      ++ (viewErrorMessage model)
+      ++ (viewLoadingMessage model))
 
 viewNewGameWindow : Model -> List (Html Msg)
 viewNewGameWindow model =
@@ -340,35 +361,49 @@ viewNewGameWindow model =
                 Html.h4 [] [ Html.text "Select game options:" ],
                 Html.div [] [
                       Html.label [] [
-                            Html.input [ Html.Attributes.type_ "number"
-                                       , Html.Events.onInput <| (NGWM << SetWordCount << Maybe.withDefault 0 << String.toInt)
-                                       , Html.Attributes.value <| String.fromInt <| model.newGameWindow.wordCount
-                                       , Html.Attributes.min "1"
-                            ] []
-                          , Html.text "Number of words" ], Html.br [] []
+                          Html.input [ Html.Attributes.type_ "number"
+                                     , Html.Events.onInput <| (NGWM << SetWordCount << Maybe.withDefault 0 << String.toInt)
+                                     , Html.Attributes.value <| String.fromInt <| model.newGameWindow.wordCount
+                                     , Html.Attributes.min "1"
+                          ] []
+                        , Html.text "Number of words" ], Html.br [] []
+                    , Html.label [] [
+                        Html.input [ Html.Attributes.type_ "number"
+                                   , Html.Attributes.value <| String.fromInt <| model.newGameWindow.lengthMin
+                                   , Html.Events.onInput <| (NGWM << SetLengthMin << Maybe.withDefault 0 << String.toInt)
+                                   , Html.Attributes.min "1"
+                        ] []
+                        , Html.text "Minimum word length" ], Html.br [] []
+                    , Html.label [] [
+                          Html.input [ Html.Attributes.type_ "checkbox"
+                                     , Html.Events.onClick <| (NGWM << SetLengthUseMax) <| not model.newGameWindow.lengthUseMax
+                                     , Html.Attributes.checked model.newGameWindow.lengthUseMax ] []
+                        , Html.input [ Html.Attributes.type_ "number"
+                                     , Html.Attributes.value <| String.fromInt <| model.newGameWindow.lengthMax
+                                     , Html.Events.onInput <| (NGWM << SetLengthMax << Maybe.withDefault 0 << String.toInt)
+                                     , Html.Attributes.min "1"
+                                     , Html.Attributes.disabled (not model.newGameWindow.lengthUseMax) ] []
+                        , Html.text "Maximum word length" ], Html.br [] []
                     , Html.label [ Html.Attributes.title "Only generates words Forward, Down and ForwardDown when unselected" ] [
-                              Html.input [ Html.Attributes.type_ "checkbox"
-                            , Html.Events.onClick <| (NGWM << SetGenerateAllDirections) <| not model.newGameWindow.generateAllDirections
-                            , Html.Attributes.checked model.newGameWindow.generateAllDirections ] []
+                          Html.input [ Html.Attributes.type_ "checkbox"
+                                     , Html.Events.onClick <| (NGWM << SetGenerateAllDirections) <| not model.newGameWindow.generateAllDirections
+                                     , Html.Attributes.checked model.newGameWindow.generateAllDirections ] []
                         , Html.text "Generate words in all directions" ], Html.br [] []
                     , Html.label [ Html.Attributes.title "0 = never exact words, 100 = always exact words" ] [
-                            Html.input [ Html.Attributes.type_ "range"
-                                       , Html.Events.onInput <| (NGWM << SetTypeProbabilities << (\e -> (e, Tuple.second <| model.newGameWindow.typeProbabilities)) << sToFP)
-                                       , Html.Attributes.value <| fpToS <| Tuple.first <| model.newGameWindow.typeProbabilities
-                            ] []
-                          , Html.text "Probability of search by exact word" ], Html.br [] []
+                          Html.input [ Html.Attributes.type_ "range"
+                                     , Html.Events.onInput <| (NGWM << SetTypeProbabilities << (\e -> (e, Tuple.second <| model.newGameWindow.typeProbabilities)) << sToFP)
+                                     , Html.Attributes.value <| fpToS <| Tuple.first <| model.newGameWindow.typeProbabilities ] []
+                        , Html.text "Probability of search by exact word" ], Html.br [] []
                     , Html.label [ Html.Attributes.title "0 = never descriptions, 100 = always descriptions (when not exact words)" ] [
-                            Html.input [ Html.Attributes.type_ "range"
-                                       , Html.Events.onInput <| (NGWM << SetTypeProbabilities << (\e -> (Tuple.first <| model.newGameWindow.typeProbabilities, e)) << sToFP)
-                                       , Html.Attributes.value <| fpToS <| Tuple.second <| model.newGameWindow.typeProbabilities
-                            ] []
-                          , Html.text "Probability of search by description" ], Html.br [] []
+                          Html.input [ Html.Attributes.type_ "range"
+                                     , Html.Events.onInput <| (NGWM << SetTypeProbabilities << (\e -> (Tuple.first <| model.newGameWindow.typeProbabilities, e)) << sToFP)
+                                     , Html.Attributes.value <| fpToS <| Tuple.second <| model.newGameWindow.typeProbabilities ] []
+                        , Html.text "Probability of search by description" ], Html.br [] []
                     , Html.label [] [
-                            Html.input [ Html.Attributes.type_ "range"
-                                       , Html.Events.onInput <| (NGWM << SetFactor << (\e -> e / 100) << Maybe.withDefault 0 << String.toFloat)
-                                       , Html.Attributes.value <| String.fromFloat <| (*) 100 <| model.newGameWindow.factor
-                            ] []
-                          , Html.text "Maximum density factor" ], Html.br [] []
+                          Html.input [ Html.Attributes.type_ "range"
+                                     , Html.Events.onInput <| (NGWM << SetFactor << (\e -> e / 100) << Maybe.withDefault 0 << String.toFloat)
+                                     , Html.Attributes.value <| String.fromFloat <| (*) 100 <| model.newGameWindow.factor ] []
+                        , Html.text "Maximum density factor" ], Html.br [] []
                 ]
             ]
         ,   Html.input [ Html.Attributes.type_ "button", Html.Events.onClick <| NewGame <| model.newGameWindow, Html.Attributes.value "New Game" ] []
@@ -401,6 +436,29 @@ viewErrorMessage model =
                     Html.input [ Html.Attributes.type_ "button", Html.Events.onClick <| ClearErrorMessage, Html.Attributes.value "Okay" ] []
                 ]]
             ]
+
+viewLoadingMessage : Model -> List (Html Msg)
+viewLoadingMessage model =
+    if model.loading then
+            [
+            Html.div [ Html.Attributes.style "position" "fixed"
+                    , Html.Attributes.style "top" "0"
+                    , Html.Attributes.style "left" "0"
+                    , Html.Attributes.style "width" "100%"
+                    , Html.Attributes.style "height" "100%"
+                    , Html.Attributes.style "background-color" "rgba(0, 0, 0, 0.75)"
+                    ] [
+                Html.div [ Html.Attributes.style "width" "90%"
+                        , Html.Attributes.style "max-width" "500px"
+                        , Html.Attributes.style "margin" "auto auto"
+                        , Html.Attributes.style "background-color" "white"
+                        , Html.Attributes.style "padding" "10px"
+                        , Html.Attributes.style "display" "flex"
+                        , Html.Attributes.style "flex-direction" "column" ]
+                [
+                        Html.h4 [] [ Html.text "Loading" ]
+                ]]
+            ] else []
 
 viewBoard : Array (Array Char) -> List (Bool, WordR) -> Maybe (Position, Position) -> Html Msg
 viewBoard board words drag =
