@@ -14,13 +14,14 @@ type WordType = Word | Description | None
 stringAt : Int -> String -> Maybe Char
 stringAt idx s = s |> String.slice idx (idx+1) |> String.uncons |> Maybe.map Tuple.first
 
--- TODO: This is really slow. Storing the wordlist in an Array might help?
 generateWordSearch : Int -> (Int, Maybe Int) -> (Float, Float) -> Dict String String -> Bool -> Float -> Generator (Result String (List (WordType, (String, String), ((Int, Int), (Int, Int))), Array (Array Char)))
 generateWordSearch count (minSize, mMaxSize) (wordProb, descProb) dict allDirections maxDensity =
     let
         wordTransform w = w |> String.toUpper |> String.filter (\c -> not (List.member c [' ', '\'', '-', '(', ')', '.', '!']))
         sampleWords allWordsRandom typeSamples =
-            allWordsRandom |> List.map (\w -> (wordTransform w, (w |> String.toUpper, dict |> Dict.get w |> Maybe.withDefault "")))
+            allWordsRandom |> List.Extra.unique
+                           |> List.map (\i -> dict |> Dict.keys |> List.Extra.getAt i |> Maybe.withDefault "")
+                           |> List.map (\w -> (wordTransform w, (w |> String.toUpper, dict |> Dict.get w |> Maybe.withDefault "")))
                            |> List.filter (\(nw, _) -> String.length nw >= minSize)
                            |> (mMaxSize |> Maybe.map (\max -> List.filter (\(nw, _) -> String.length nw <= max)) |> Maybe.withDefault (\e -> e))
                            |> List.map2 (\(ws, ds) (nw, (ow, d)) -> (nw, (if ws < wordProb then Word else if ds < descProb then Description else None, ow, d))) typeSamples
@@ -31,7 +32,7 @@ generateWordSearch count (minSize, mMaxSize) (wordProb, descProb) dict allDirect
                 |> Result.map (\(grid, ws, _) -> (ws |> List.map (\(_, (wt, ow, d), p) -> (wt, (ow, d), p)),
                                            grid |> List.map Array.fromList |> Array.fromList))
     in
-        dict |> Dict.keys |> Random.List.shuffle
+        Random.list (count * 50) (Random.int 0 (dict |> Dict.size))
             |> Random.pair (Random.list count (Random.pair (Random.float 0 1) (Random.float 0 1)))
             |> Random.pair (Random.list (count * count * 250) (Random.int Random.minInt Random.maxInt))
             |> Random.map generateWordSearchAux
