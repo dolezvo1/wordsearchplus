@@ -137,7 +137,8 @@ fetchDictSource mngwm (idx, ds) = case ds.content of
 -- Update
 
 type Msg
-    = NGWM NewGameWindowMsg
+    = CmdDelay (() -> Cmd Msg)
+    | NGWM NewGameWindowMsg
     | RequestedDictFileDialog
     | GotDictFile File.File
     | GotDictFileContent File.File String
@@ -178,10 +179,13 @@ update msg model =
                     Nothing -> cmdNone m
                     Just ds -> case ds.content of
                         Nothing -> ({m | loading = True}, fetchDictSource (Just ngw) (dsi, ds))
-                        Just c -> let nngw = { ngw | show = False }
-                            -- TODO: There is something wrong here. Either I'm using the `Random` package wrong,
-                            --         or it suspends the view, preventing the loading screen from appearing???
-                            in ({m | loading = True, newGameWindow = nngw}, BoardGenerator.generateWordSearch ngw.wordCount (ngw.lengthMin, if ngw.lengthUseMax then Just ngw.lengthMax else Nothing) ngw.typeProbabilities c ngw.generateAllDirections ngw.factor |> Random.generate GotGeneratedBoard)
+                        Just c ->
+                            let nngw = { ngw | show = False }
+                                genf = (\() -> BoardGenerator.generateWordSearch ngw.wordCount (ngw.lengthMin, if ngw.lengthUseMax then Just ngw.lengthMax else Nothing) ngw.typeProbabilities c ngw.generateAllDirections ngw.factor |> Random.generate GotGeneratedBoard)
+                                _ = Debug.log "before" genf
+                                cmd = genf |> CmdDelay |> Task.succeed |> Task.perform identity
+                                _ = Debug.log "after" genf
+                            in ({m | loading = True, newGameWindow = nngw}, cmd)
         wordsComp (sa, wa) (sb, wb) =
             let (ar, br) = (sa || (wa.wordType == Word), sb || (wb.wordType == Word))
             in if sa == sb && sa == True then compare wa.word wb.word
@@ -194,6 +198,9 @@ update msg model =
         wordSort l = l |> List.sortWith wordsComp
     in
     case msg of
+        CmdDelay f ->
+            let _ = Debug.log "CmdDelay" f
+            in (model, f ())
         NGWM msg2 ->
             let oldNewGameWindow = model.newGameWindow
                 newNewGameWindow = case msg2 of
