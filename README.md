@@ -7,7 +7,7 @@ Word Search Plus is a [word search](https://en.wikipedia.org/wiki/Word_search ) 
 * Search by definitions or blind search, all with customizable probabilities
 * Set specific word count, options to filter words by length.
 
-Created as semestral project for the NI-AFP course ([syllabus in english]](https://bk.fit.cvut.cz/en/predmety/00/00/00/00/00/00/06/15/75/p6157506.html ), [syllabus in czech]](https://bk.fit.cvut.cz/cz/predmety/00/00/00/00/00/00/06/15/75/p6157506.html ) ).
+Created as semestral project for the NI-AFP course ([syllabus in english](https://bk.fit.cvut.cz/en/predmety/00/00/00/00/00/00/06/15/75/p6157506.html ), [syllabus in czech](https://bk.fit.cvut.cz/cz/predmety/00/00/00/00/00/00/06/15/75/p6157506.html ) ).
 
 ### How to run
 
