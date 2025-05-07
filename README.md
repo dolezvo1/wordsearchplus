@@ -13,9 +13,13 @@ Created as semestral project for the NI-AFP course ([syllabus in english](https:
 
 You don't have do download any code, you can simply navigate to its [GH Pages](https://dolezvo1.github.io/wordsearchplus/ ) in your browser.
 
-Optionally, if you really want to, you can clone this repository, and then start a local server by running
+Optionally, if you really want to, you can clone this repository, and then
 
 ```shell
+# First run this:
 npm install
-npm run dev
+
+# Then either:
+npm run dev # <- this if you want a local development server, or
+npm run build # <- this if you want a production build (will be located in `dist/`)
 ```
