@@ -134,6 +134,12 @@ fetchDictSource mngwm (idx, ds) = case ds.content of
         , expect = Http.expectJson (Result.map (\e -> {ds | content = Just e}) >> GotSource mngwm idx) (Decode.dict Decode.string)
         }
 
+commandDelay : (() -> Cmd Msg) -> Cmd Msg
+commandDelay workload = Http.get
+        { url = "localhost:8080/jesus-saw-this-and-wept"
+        , expect = Http.expectString (\_ -> CmdDelay workload)
+        }
+
 -- Update
 
 type Msg
@@ -182,10 +188,7 @@ update msg model =
                         Just c ->
                             let nngw = { ngw | show = False }
                                 genf = (\() -> BoardGenerator.generateWordSearch ngw.wordCount (ngw.lengthMin, if ngw.lengthUseMax then Just ngw.lengthMax else Nothing) ngw.typeProbabilities c ngw.generateAllDirections ngw.factor |> Random.generate GotGeneratedBoard)
-                                _ = Debug.log "before" genf
-                                cmd = genf |> CmdDelay |> Task.succeed |> Task.perform identity
-                                _ = Debug.log "after" genf
-                            in ({m | loading = True, newGameWindow = nngw}, cmd)
+                            in ({m | loading = True, newGameWindow = nngw}, commandDelay genf)
         wordsComp (sa, wa) (sb, wb) =
             let (ar, br) = (sa || (wa.wordType == Word), sb || (wb.wordType == Word))
             in if sa == sb && sa == True then compare wa.word wb.word
@@ -198,9 +201,7 @@ update msg model =
         wordSort l = l |> List.sortWith wordsComp
     in
     case msg of
-        CmdDelay f ->
-            let _ = Debug.log "CmdDelay" f
-            in (model, f ())
+        CmdDelay f -> (model, f ())
         NGWM msg2 ->
             let oldNewGameWindow = model.newGameWindow
                 newNewGameWindow = case msg2 of
