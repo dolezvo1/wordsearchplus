@@ -11,12 +11,11 @@ Created as semestral project for the NI-AFP course ([syllabus in english](https:
 
 ### How to run
 
-Simplest way it to navigate to (TODO: location) in your browser.
+You don't have do download any code, you can simply navigate to its [GH Pages](https://dolezvo1.github.io/wordsearchplus/ ) in your browser.
 
-Optionally you can clone this repository, and then start a local server by running
+Optionally, if you really want to, you can clone this repository, and then start a local server by running
 
 ```shell
 npm install
 npm run dev
 ```
-
