@@ -17,7 +17,7 @@ stringAt idx s = s |> String.slice idx (idx+1) |> String.uncons |> Maybe.map Tup
 generateWordSearch : Int -> (Int, Maybe Int) -> (Float, Float) -> Dict String String -> Bool -> Float -> Generator (Result String (List (WordType, (String, String), ((Int, Int), (Int, Int))), Array (Array Char)))
 generateWordSearch count (minSize, mMaxSize) (wordProb, descProb) dict allDirections maxDensity =
     let
-        wordTransform w = w |> String.toUpper |> String.filter (\c -> not (List.member c [' ', '\'', '-', '(', ')', '.', '!']))
+        wordTransform w = w |> String.toUpper |> String.filter (\c -> not (List.member c [' ', '\'', '-', '(', ')', '.', '!', '?']))
         sampleWords allWordsRandom typeSamples =
             allWordsRandom |> List.Extra.unique
                            |> List.map (\i -> dict |> Dict.keys |> List.Extra.getAt i |> Maybe.withDefault "")
