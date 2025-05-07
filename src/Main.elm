@@ -35,6 +35,7 @@ main =
 
 
 -- Model
+-- The model represents the state of the whole application
 
 
 type alias Model =
@@ -49,11 +50,41 @@ type alias Model =
     }
 
 
+
+-- Represents the game settings to be set by user
+
+
+type alias NewGameWindowModel =
+    { show : Bool
+    , dictionaryIndex : Maybe Int
+    , newDictName : String
+    , newDictSourceRemote : Bool
+    , newDictUrl : String
+    , newDictFile : Maybe ( String, Dict String String )
+    , wordCount : Int
+    , lengthMin : Int
+    , lengthMax : Int
+    , lengthUseMax : Bool
+    , generateAllDirections : Bool
+    , typeProbabilities : ( Float, Float )
+    , factor : Float
+    }
+
+
+
+-- DictSource represents either a full dictionary,
+--   or information about where to get it
+
+
 type alias DictSource =
     { name : String
     , url : String
     , content : Maybe (Dict String String)
     }
+
+
+
+-- WordR represents a word to be found during the game
 
 
 type alias WordR =
@@ -75,23 +106,6 @@ type alias PositionF =
 
 
 -- Initial Model
-
-
-type alias NewGameWindowModel =
-    { show : Bool
-    , dictionaryIndex : Maybe Int
-    , newDictName : String
-    , newDictSourceRemote : Bool
-    , newDictUrl : String
-    , newDictFile : Maybe ( String, Dict String String )
-    , wordCount : Int
-    , lengthMin : Int
-    , lengthMax : Int
-    , lengthUseMax : Bool
-    , generateAllDirections : Bool
-    , typeProbabilities : ( Float, Float )
-    , factor : Float
-    }
 
 
 init : () -> ( Model, Cmd Msg )
@@ -567,8 +581,8 @@ view model =
                    )
             )
          , Html.div [ Html.Attributes.style "display" "flex" ]
-            [ viewBoard model.board model.wordsToFind model.mouseDrag
-            , viewWords model.wordsToFind model.revealExactWords
+            [ viewGameBoard model.board model.wordsToFind model.mouseDrag
+            , viewWordsList model.wordsToFind model.revealExactWords
             ]
          ]
             ++ viewNewGameWindow model
@@ -841,8 +855,8 @@ viewLoadingMessage model =
         []
 
 
-viewBoard : Array (Array Char) -> List ( Bool, WordR ) -> Maybe ( Position, Position ) -> Html Msg
-viewBoard board words drag =
+viewGameBoard : Array (Array Char) -> List ( Bool, WordR ) -> Maybe ( Position, Position ) -> Html Msg
+viewGameBoard board words drag =
     let
         ( letterW, fontSize, padding ) =
             ( 50, 37, 20 )
@@ -1005,8 +1019,8 @@ viewBoard board words drag =
         )
 
 
-viewWords : List ( Bool, WordR ) -> Bool -> Html.Html Msg
-viewWords words revealExactWords =
+viewWordsList : List ( Bool, WordR ) -> Bool -> Html.Html Msg
+viewWordsList words revealExactWords =
     let
         foundWords =
             words |> List.filter Tuple.first |> List.length

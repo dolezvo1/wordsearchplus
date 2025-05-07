@@ -16,9 +16,31 @@ type WordType
     | None
 
 
+
+{- stringAt
+   @brief: Returns the character at given index (or Nothing)
+   @param: Int : The index
+           String : The string
+   @return: Maybe Char : The character at given index if applicable.
+-}
+
+
 stringAt : Int -> String -> Maybe Char
 stringAt idx s =
     s |> String.slice idx (idx + 1) |> String.uncons |> Maybe.map Tuple.first
+
+
+
+{- generateWordSearch
+   @brief: Returns a Generator for a word search given input parameters
+   @param: Int : Number of words to generate
+           (Int, Maybe Int) : The minimal and the maximal word length, inclusive
+           (Float, Float) : The probabilities for the word type
+           Dict String String : The wordlist to generate words from
+           Bool : Whether to generate words oriented in all directions
+           Float : Maximum word density on the board
+   @return: Generator (Result String ...) : A generator generating boards matching the parameters.
+-}
 
 
 generateWordSearch : Int -> ( Int, Maybe Int ) -> ( Float, Float ) -> Dict String String -> Bool -> Float -> Generator (Result String ( List ( WordType, ( String, String ), ( ( Int, Int ), ( Int, Int ) ) ), Array (Array Char) ))
@@ -73,7 +95,7 @@ generateWordSearch count ( minSize, mMaxSize ) ( wordProb, descProb ) dict allDi
 
 
 
--- The following code was originally written by Charles Powell (in Haskell)
+-- The following code was originally written by Charles Powell (in Haskell), but modified with additional functionality
 -- https://github.com/cekpowell/wordsearch-generator-solver/blob/main/Generator/src/Generator.hs
 -----------------------
 -- DATA DEFINITIONS  --
@@ -139,12 +161,7 @@ dirVec o =
 -- MAIN FUNCTIONS --
 --------------------
 {- createWordSearch
-   @brief: Main function for the challenge. Given a list of words and
-           a maximum density, returns a word search grid containing theese
-           words in a random position and orientation, with a density less
-           than the given maximum density.
-
-           Main logic:
+   @brief: Main logic:
                - Use the list of words and maximum density to find the smallest
                  needed grid size.
                - Create an empty grid of this dimension, with blank ('~')
@@ -162,10 +179,12 @@ dirVec o =
                - When all words are added, fill in the remainder of the blank symbols
                  with random characters from the input words.
                - Return the completed grid.
-   @param: [String] : The words to be inserted into the wordsearch.
+   @param: List (String, a) : The words to be inserted, plus associated user data
+           Bool : Whether to generate words oriented in all directions
            Float : The max density of the grid to be made.
-   @return: IO WordSearchGrid : The resulting grid made in the process.
-            Error : If density is equal to 1 or 0 (such grids are not possible)
+           List Int : The source of randomness
+   @return: Result String (WordSearchGrid, List (String, a, ((Int, Int), (Int, Int))), List Int) :
+                The resulting grid, the words and their coordinates, the remaining randomness.
 -}
 
 
@@ -190,18 +209,19 @@ createWordSearch words allDirections maxDensity entropy =
 
 
 {- createWordSearchAux
-   @brief: Auxilliary function to create a word search. Given a list of words
-           and an empty word search grid, recurses through the list of words,
-           finding a placement for each word and then adding it to the grid.
-           If a word cant be placed, the function resets with all of the words
-           and a bigger grid.
-   @param: [String]: The set of words to be added to the grid.
+   @brief: Auxilliary function to create a word search. Recurses through the
+           list of words, finding a placement for each word and then adding it
+           to the grid. If a word cant be placed, the function resets with all
+           of the words and a bigger grid.
+   @param: Bool: Whether to generate words oriented in all directions
+           List (String, a): The set of words to be added to the grid, plus associated user data
+           List (...): Accumulator of placed words
            WordSearchGrid: The empty word search grid of the needed dimension.
-           [String]: The set of words to be added (not reduced under recursion
+           List (String, a): The set of words to be added (not reduced under recursion
            so that the function can be reset).
-   @return: IO WordSearchGrid: The generated grid containing the given words.
-            Error: If one of the words is the empty string (""). Such a word
-            cannot be added to a grid.
+           List Int : The source of randomness
+   @return: Result String (WordSearchGrid, List (), List Int):
+              The resulting grid, the words and their coordinates, the remaining randomness.
 -}
 
 
@@ -266,7 +286,7 @@ createWordSearchAux allDirections words placedWordsAcc grid allWords entropy =
            max density. Also, the grid must be large enough to fit the largest word in
            the set into it. Thus, the minimum grid dimension will be the max of the
            length of the largest word or the dimension according to the density.
-   @param:[String]: words to be added to the grid.
+   @param:List String: words to be added to the grid.
           Float: Max density of the grid.
    @return: Int: The minimum dimension of a grid to satisfy the constraints.
 -}
@@ -292,7 +312,7 @@ getMinimumGridSize words maxDensity =
            the next square number after (number of characters in words)/maxDensity.
            A grid of this size will always have a density less than the given maximum
            density.
-   @param: [String]: Set of words to be added.
+   @param: List String: Set of words to be added.
            Float: Max density of grid.
    @return: Int: Minimum dimension of the grid to ensure density is less than max density.
 -}
@@ -336,7 +356,7 @@ nextSquareNumber number currentGuess =
            where n is the length of the longest word in the given list. Thus function
            finds the longest word by recursivley going through each word and seeing if
            its length is greater than the current length.
-   @param: [String]: The set of words.
+   @param: List String: The set of words.
    @return: Int: The length of the largest word.
 -}
 
@@ -350,7 +370,7 @@ getMinimumGridSizeByWordLength words =
 {- getMinimumGridSizeByWordLengthAux
    @brief: Auxilliary function for 'getMinimumGridSizeByWordLength'. Recursivley
            finds the length of the largest word in the list of words.
-   @param: [String]: The list of words.
+   @param: List String: The list of words.
            Int: Length of the current largest word.
    @return: Int: Length of the largest word in the list.
 -}
@@ -407,10 +427,14 @@ getEmptyWordSearchGrid n =
                - In this case, return an INVALID placement to signify the word
                  cannot be palced in the grid, and the calling function will create a
                  new grid.
-   @param: String: The word for which a placement is being seeked.
+   @param: Bool: Whether to generate words oriented in all directions
+           String: The word for which a placement is being seeked.
            WordSearchGrid: The grid we are trying to place the word into.
-   @return: A placement if one was found. If no placement was found, returns
-            ((0,0), Nothing), which is an invalid placement.
+           Int: Current attempt number
+           List Int : The source of randomness
+   @return: Result String (Placement, List Int): A placement if one was found.
+            If no valid placement was found, returns Ok ((0,0), Nothing), which is an
+            invalid placement. Err means something else failed.
 -}
 
 
@@ -449,7 +473,9 @@ getRandomPlacement allDirections word grid attempts entropy =
    @brief: Given the dimension of a grid, returns a random position within
            the grid.
    @param: Int: Dimension of the grid.
-   @return: IO Posn: The randomly generated position within the grid.
+           List Int : The source of randomness
+   @return: Result String (Posn, List Int):
+            The randomly generated position within the grid, and the remaining randomness.
 -}
 
 
@@ -467,8 +493,9 @@ getRandomPosition dimension entropy =
 {- getRandomOrientation
    @brief: Returns a random orientation by generating a random number and indexing
            the list of all orientations.
-   @param: N/A
-   @return: IO Orientation: A randomly generated orientation
+   @param: Bool: Whether to generate words oriented in all directions
+           List Int : The source of randomness
+   @return: Result String ( Orientation, List Int ): A randomly generated orientation
 -}
 
 
@@ -654,9 +681,9 @@ addLetter l grid (( c, r ) as position) =
            letter into this column of the row. Does this by recursing through the columns
            in the row until it finds the needed column.
    @param: Char: The letter being inserted into the grid.
-           [Char]: The row the letter is to be inserted into
+           List Char: The row the letter is to be inserted into
            Int: The column number the letter is to be inserted at.
-   @return: [Char]: The input row with the input letter at the input column number.
+   @return: List Char: The input row with the input letter at the input column number.
 -}
 
 
@@ -683,10 +710,11 @@ addLetterAux l row c =
            replace all of the blank ('~) characters within the grid with a random
            character from the set of characters. This is done by recursing through
            the grid and calling a helper function on each row within the grid.
-   @param: [Char]: The set of all characters within the input words.
+   @param: List Char: The set of all characters within the input words.
            WordSearchGrid: The grid for which the blanks need to be filled.
-   @return: IO WordSearchGrid: The input grid with all of the blanks replaced with
-            random characters.
+           List Int : The source of randomness
+   @return: Result String (WordSearchGrid, List Int): The input grid with all
+           of the blanks replaced with random characters.
 -}
 
 
@@ -716,10 +744,11 @@ fillBlanks characters grid entropy =
            all '~' within the grid with a random character, taken from the
            list of input characteres. This is done by recursing through the
            row and checking if the character at this position is a '~' or not.
-   @param: [Char]: The set of characters within the input words.
-           [Char]: The row for which the blanks must be replaced.
-   @return: IO [Char]: The input row with all of the '~' replaced with a random
-            character from the input list.
+   @param: List Char: The set of characters within the input words.
+           List Char: The row for which the blanks must be replaced.
+           List Int : The source of randomness
+   @return: Result String (List Char, List Int): The input row with all of
+           the '~' replaced with a random character from the input list.
 -}
 
 
@@ -752,8 +781,9 @@ fillBlanksAux characters row entropy =
 
 {- getRandomChar
    @brief: Given a list of characters, returns a random character from this list.
-   @param: [Char]: The list of characters.
-   @return: IO Char: A random character from the input list.
+   @param: List Char: The list of characters.
+           List Int : The source of randomness
+   @return: Result String (Char, List Int): A random character from the input list.
 -}
 
 
