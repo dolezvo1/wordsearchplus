@@ -140,7 +140,7 @@ tests : Test
 tests =
     describe "BoardGenerator"
         [ describe "generateWordSearch"
-            [ fuzz Fuzz.int "generates valid word search" <|
+            [ fuzz Fuzz.int "overcomplicated" <|
                 \seed ->
                     let
                         words =
@@ -176,6 +176,42 @@ tests =
                                             b |> Array.map Array.toList |> Array.toList
                                     in
                                     Expect.atLeast 1 (countWordOccurrences wordU boardAsList)
+                                ]
+                                cwb
+            , fuzz Fuzz.int "overcomplicated, daft" <|
+                \seed ->
+                    let
+                        words =
+                            [ ( "overcomplicated", "" ), ( "daft", "" ) ]
+
+                        wordsU =
+                            words |> List.map (Tuple.first >> String.toUpper)
+
+                        wordsDict =
+                            Dict.fromList words
+
+                        generator =
+                            generateWordSearch 2 ( 1, Nothing ) ( 1, 0 ) wordsDict True 1
+
+                        result =
+                            Random.step generator (Random.initialSeed seed)
+                    in
+                    case result of
+                        ( Err _, _ ) ->
+                            Expect.fail "Expected Ok but got Err"
+
+                        ( Ok cwb, _ ) ->
+                            Expect.all
+                                [ \( cw, _ ) ->
+                                    Expect.all (cw |> List.map (\( _, ( w, _ ), _ ) -> \_ -> Expect.equal (List.member w wordsU) True)) ()
+                                , \( cw, _ ) ->
+                                    Expect.all (wordsU |> List.map (\wu -> \_ -> Expect.equal (List.member wu (List.map (\( _, ( w, _ ), _ ) -> w) cw)) True)) ()
+                                , \( cw, b ) ->
+                                    let
+                                        boardAsList =
+                                            b |> Array.map Array.toList |> Array.toList
+                                    in
+                                    Expect.all (cw |> List.map (\( _, ( w, _ ), _ ) -> \_ -> Expect.atLeast 1 (countWordOccurrences w boardAsList))) ()
                                 ]
                                 cwb
             ]
