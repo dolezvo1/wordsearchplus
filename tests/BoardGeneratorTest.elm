@@ -73,6 +73,7 @@ countWordOccurrences word board =
                     expected == getChar r c
             in
             List.length wordChars
+                - 1
                 |> List.range 0
                 |> List.all checkIndex
 
@@ -101,12 +102,17 @@ wordCounterTest =
             \_ ->
                 let
                     board =
-                        [ [ 'R', 'O', 'D' ], [ 'O', 'O', 'D' ], [ 'D', 'D', 'D' ] ]
+                        [ [ 'R', 'O', 'D' ]
+                        , [ 'O', 'O', 'D' ]
+                        , [ 'D', 'D', 'D' ]
+                        ]
 
                     result =
-                        countWordOccurrences "ROD" board
+                        [ countWordOccurrences "ROD" board
+                        , countWordOccurrences "OD" board
+                        ]
                 in
-                Expect.equal result 3
+                Expect.equal result [ 3, 9 ]
         , test "sator" <|
             \_ ->
                 let
@@ -122,9 +128,11 @@ wordCounterTest =
                         [ countWordOccurrences "SATOR" board
                         , countWordOccurrences "AREPO" board
                         , countWordOccurrences "TENET" board
+                        , countWordOccurrences "NET" board
+                        , countWordOccurrences "AREP" board
                         ]
                 in
-                Expect.equal result [ 4, 4, 4 ]
+                Expect.equal result [ 4, 4, 4, 4, 4 ]
         ]
 
 
