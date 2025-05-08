@@ -140,7 +140,7 @@ generateWordSearch count ( minSize, mMaxSize ) ( wordProb, descProb ) dict allDi
     in
     Random.list (count * 50) (Random.int 0 (dict |> Dict.size))
         |> Random.pair (Random.list count (Random.pair (Random.float 0 1) (Random.float 0 1)))
-        |> Random.pair (Random.list (count * count * 250) (Random.int Random.minInt Random.maxInt))
+        |> Random.pair (Random.list (count * count * 1000) (Random.int Random.minInt Random.maxInt))
         |> Random.map generateWordSearchAux
 
 
