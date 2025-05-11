@@ -942,6 +942,8 @@ viewGameBoard board words drag =
                 , Svg.Attributes.fillOpacity "0%"
                 , Svg.Events.onMouseDown <| MouseDown <| ( colIndex, rowIndex )
                 , Svg.Events.onMouseOver <| MouseOver <| ( colIndex, rowIndex )
+                , Svg.Events.on "touchstart" <| Decode.succeed <| MouseDown <| ( colIndex, rowIndex )
+                , Svg.Events.on "touchmove" <| Decode.succeed <| MouseOver <| ( colIndex, rowIndex )
                 ]
                 []
             ]
@@ -996,6 +998,7 @@ viewGameBoard board words drag =
         , Svg.Attributes.width (boardW |> (*) letterW |> (+) (2 * padding) |> String.fromInt)
         , Svg.Attributes.height (boardH |> (*) letterW |> (+) (2 * padding) |> String.fromInt)
         , Svg.Events.onMouseUp MouseUp
+        , Svg.Events.on "touchend" <| Decode.succeed <| MouseUp
         , Svg.Attributes.viewBox
             (String.fromInt -padding
                 ++ " "
