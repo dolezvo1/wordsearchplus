@@ -7,13 +7,13 @@ Word Search Plus is a [word search](https://en.wikipedia.org/wiki/Word_search ) 
 * Search by definitions or blind search, all with customizable probabilities
 * Set specific word count, options to filter words by length.
 
-Created as semestral project for the NI-AFP course ([syllabus in english](https://bk.fit.cvut.cz/en/predmety/00/00/00/00/00/00/06/15/75/p6157506.html ), [syllabus in czech](https://bk.fit.cvut.cz/cz/predmety/00/00/00/00/00/00/06/15/75/p6157506.html ) ).
+Created as semestral project for the NI-AFP course ([syllabus in english](https://bk.fit.cvut.cz/en/predmety/00/00/00/00/00/00/06/15/75/p6157506.html ), [syllabus in czech](https://bk.fit.cvut.cz/cz/predmety/00/00/00/00/00/00/06/15/75/p6157506.html )).
 
 ![](img/image.png)
 
 ### How to run
 
-You don't have do download any code, you can simply navigate to its [GH Pages](https://dolezvo1.github.io/wordsearchplus/ ) in your browser.
+You don't have do download any code, you can simply navigate to its [GitHub Pages](https://dolezvo1.github.io/wordsearchplus/ ) in your browser.
 
 Optionally, if you really want to, you can clone this repository, and then
 
