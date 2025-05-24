@@ -301,6 +301,28 @@ update msg model =
 
         wordSort l =
             l |> List.sortWith wordsComp
+
+        tryFindWord : ( Position, Position ) -> List ( Bool, WordR ) -> Maybe (List ( Bool, WordR ))
+        tryFindWord ( start, end ) words =
+            let
+                p e =
+                    (e.start == start && e.end == end) || (e.start == end && e.end == start)
+            in
+            if words |> List.any (\( _, a ) -> p a) then
+                Just
+                    (words
+                        |> List.map
+                            (\( s, e ) ->
+                                if not s && p e then
+                                    ( True, e )
+
+                                else
+                                    ( s, e )
+                            )
+                    )
+
+            else
+                Nothing
     in
     case msg of
         CmdDelay f ->
@@ -475,32 +497,20 @@ update msg model =
             cmdNone model
 
         PointerDown pos ->
-            cmdNone { model | mouseDrag = Just ( pos, pos ) }
+            cmdNone <|
+                case model.mouseDrag of
+                    Nothing ->
+                        { model | mouseDrag = Just ( pos, pos ) }
+
+                    Just ( mds, mde ) ->
+                        case tryFindWord ( mds, pos ) model.wordsToFind of
+                            Just words ->
+                                { model | wordsToFind = wordSort words, mouseDrag = Nothing }
+
+                            Nothing ->
+                                { model | mouseDrag = Just ( pos, pos ) }
 
         PointerUp ->
-            let
-                tryFindWord : ( Position, Position ) -> List ( Bool, WordR ) -> Maybe (List ( Bool, WordR ))
-                tryFindWord ( start, end ) words =
-                    let
-                        p e =
-                            (e.start == start && e.end == end) || (e.start == end && e.end == start)
-                    in
-                    if words |> List.any (\( _, a ) -> p a) then
-                        Just
-                            (words
-                                |> List.map
-                                    (\( s, e ) ->
-                                        if not s && p e then
-                                            ( True, e )
-
-                                        else
-                                            ( s, e )
-                                    )
-                            )
-
-                    else
-                        Nothing
-            in
             cmdNone <|
                 case model.mouseDrag of
                     Nothing ->
@@ -942,6 +952,7 @@ viewGameBoard board words drag =
                 , Svg.Attributes.fillOpacity "0%"
                 , Svg.Events.on "pointerdown" <| Decode.succeed <| PointerDown <| ( colIndex, rowIndex )
                 , Svg.Events.on "pointerover" <| Decode.succeed <| PointerOver <| ( colIndex, rowIndex )
+                , Svg.Events.on "pointermove" <| Decode.succeed <| PointerOver <| ( colIndex, rowIndex )
                 , Svg.Events.on "pointerup" <| Decode.succeed <| PointerUp
                 ]
                 []
