@@ -201,9 +201,9 @@ type Msg
     | ClearErrorMessage
     | WordListReveal
     | WordListCollapse
-    | MouseDown Position
-    | MouseUp
-    | MouseOver Position
+    | PointerDown Position
+    | PointerOver Position
+    | PointerUp
 
 
 type NewGameWindowMsg
@@ -474,10 +474,10 @@ update msg model =
         WordListCollapse ->
             cmdNone model
 
-        MouseDown pos ->
+        PointerDown pos ->
             cmdNone { model | mouseDrag = Just ( pos, pos ) }
 
-        MouseUp ->
+        PointerUp ->
             let
                 tryFindWord : ( Position, Position ) -> List ( Bool, WordR ) -> Maybe (List ( Bool, WordR ))
                 tryFindWord ( start, end ) words =
@@ -514,7 +514,7 @@ update msg model =
                             Nothing ->
                                 { model | mouseDrag = Nothing }
 
-        MouseOver pos ->
+        PointerOver pos ->
             let
                 positionOrtoDiaLock : Position -> Position -> Position
                 positionOrtoDiaLock origin end =
@@ -940,10 +940,9 @@ viewGameBoard board words drag =
                 , Svg.Attributes.width <| String.fromInt letterW
                 , Svg.Attributes.height <| String.fromInt letterW
                 , Svg.Attributes.fillOpacity "0%"
-                , Svg.Events.onMouseDown <| MouseDown <| ( colIndex, rowIndex )
-                , Svg.Events.onMouseOver <| MouseOver <| ( colIndex, rowIndex )
-                , Svg.Events.on "touchstart" <| Decode.succeed <| MouseDown <| ( colIndex, rowIndex )
-                , Svg.Events.on "touchmove" <| Decode.succeed <| MouseOver <| ( colIndex, rowIndex )
+                , Svg.Events.on "pointerdown" <| Decode.succeed <| PointerDown <| ( colIndex, rowIndex )
+                , Svg.Events.on "pointerover" <| Decode.succeed <| PointerOver <| ( colIndex, rowIndex )
+                , Svg.Events.on "pointerup" <| Decode.succeed <| PointerUp
                 ]
                 []
             ]
@@ -997,8 +996,6 @@ viewGameBoard board words drag =
         [ Svg.Attributes.style "max-height: calc(100vh - 50px);"
         , Svg.Attributes.width (boardW |> (*) letterW |> (+) (2 * padding) |> String.fromInt)
         , Svg.Attributes.height (boardH |> (*) letterW |> (+) (2 * padding) |> String.fromInt)
-        , Svg.Events.onMouseUp MouseUp
-        , Svg.Events.on "touchend" <| Decode.succeed <| MouseUp
         , Svg.Attributes.viewBox
             (String.fromInt -padding
                 ++ " "
